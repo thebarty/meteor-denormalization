@@ -1,3 +1,13 @@
+# WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!
+
+**WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
+**WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
+**WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
+**WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
+**WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
+**WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
+
+
 ### Denormalization-Helper for Meteor SimpleSchema Collection2
 
 I LOVE the aldeed:ecosystem!!! SimpleSchema + Collection2 + Autoform+Tabular are GREAT TOOLS for rapid development. Denormalization speeds things up when reading data and makes your application scalable (?), BUT it also adds complexity and might give you headaches.
