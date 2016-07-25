@@ -27,13 +27,13 @@ The aim is to support denormalization in both directions, so that (if needed) BO
 
 ## How to contribute to this package
 Lets make this perfect and collaborate. This is how to set up your local testing environment:
-1) run "meteor create whatever; cd whatever; mkdir packages;"
-2) copy this package into the packages dir, p.e. "./whatever/packages/denormalization"
-3) run tests from the root (/whatever/.) of your project like ``meteor test-packages ./packages/denormalization/ --driver-package practicalmeteor:mocha``
-4) develop, write tests, and submit a pull request
+1. run "meteor create whatever; cd whatever; mkdir packages;"
+2. copy this package into the packages dir, p.e. "./whatever/packages/denormalization"
+3. run tests from the root (/whatever/.) of your project like ``meteor test-packages ./packages/denormalization/ --driver-package practicalmeteor:mocha``
+4. develop, write tests, and submit a pull request
 
 ## Resources:
- * https://disqus.com/home/discussion/justmeteor/why_we_dont_denormalize_anymore/newest/ interesting read-up. For me the conclusions are: "denormalization" is an performance optimization technique, meaning: When prototyping it might make sense to use joins or use this package to speed things up. "The rule should be, go full relational until performance matters, once it does start de-normalizing."
+ * https://disqus.com/home/discussion/justmeteor/why_we_dont_denormalize_anymore/newest/ interesting read-up. For me the conclusions are: "denormalization" is an performance optimization technique, meaning: When prototyping it might (!!!) make sense to use joins or use this package to speed things up. "The rule should be, go full relational until performance matters, once it does start de-normalizing." The ambivalent concept is that we are using mongo which is advising us to use denormalization.
 
 ## Other related packages:
 * https://github.com/peerlibrary/meteor-peerdb: perfect and much better than this package, BUT it is NOT compatible with SimpleSchema.

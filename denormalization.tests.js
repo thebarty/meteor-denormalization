@@ -5,10 +5,14 @@ import { chai } from 'meteor/practicalmeteor:chai'
 const expect = chai.expect
 
 // Import and rename a variable exported by denormalization.js.
-import { Denormalize, AUTOFORM_IS_ACTIVE } from "meteor/thebarty:denormalization";
+import { Denormalize, AUTOFORM_IS_ACTIVE } from 'meteor/thebarty:denormalization'
 Denormalize.Debug = true
 
 // import { UseCase } from './projects_list_standalone_component.js'
+
+// needed for simple test
+const aCollection = new Mongo.Collection('acollection')
+
 
 // ===========================================
 // POSTS & COMMENTS: ONE-TO-MANY RELATIONSHIP
@@ -35,8 +39,89 @@ Denormalize.Debug = true
 // FIXTURES
 const PostsSimple = new Mongo.Collection('postssimple')
 const CommentsSimple = new Mongo.Collection('commentssimple')
+const AuthorsSimple =  new Mongo.Collection('authorssimple')
 
-CommentsSimple.attachSchema(Denormalize.simpleSchema({
+const UpdateCreatedSchema = new SimpleSchema({
+  // CREATED && UPDATED
+  createdAt: {
+    type: Date,
+    autoValue: function() {
+      if (this.isInsert) {
+        return new Date;
+      } else if (this.isUpsert) {
+        return {$setOnInsert: new Date};
+      } else {
+        this.unset();  // Prevent user from supplying their own value
+      }
+    },
+  },
+  updatedAt: {
+    type: Date,
+    autoValue: function() {
+      return new Date();  // always add date
+    },
+  },
+})
+
+AuthorsSimple.attachDenormalizedSchema([
+  // MERGE 2 Schemas is supported
+  {
+    name: {
+      type: String,
+    },
+    // RELATIONSHIPN: "Foreign-Key" (ONE_TO_MANY reference field)
+    // .. from Author-perspectve
+    //    1 Author can have Many comments
+    postIds: {
+      // WRITABLE field
+      type: [String],
+      optional: true,
+      denormalize: {
+        relation: Denormalize.RELATION_ONE_TO_MANY,
+        relatedCollection: PostsSimple,
+        relatedReference: 'authorId',
+        pickAttributes: ['post'],
+        extendCacheFieldBy: {
+          label: 'Author denormalized Instance',
+        }
+      },
+    },
+    // NOTE:
+    // "postInstance"-property will be generated
+  },
+  UpdateCreatedSchema
+])
+
+AuthorsSimple.attachDenormalizedSchema([
+  // MERGE 2 Schemas is supported
+  {
+    name: {
+      type: String,
+    },
+    // RELATIONSHIPN: "Foreign-Key" (ONE_TO_MANY reference field)
+    // .. from Author-perspectve
+    //    1 Author can have Many comments
+    postIds: {
+      // WRITABLE field
+      type: [String],
+      optional: true,
+      denormalize: {
+        relation: Denormalize.RELATION_ONE_TO_MANY,
+        relatedCollection: PostsSimple,
+        relatedReference: 'authorId',
+        pickAttributes: ['post'],
+        extendCacheFieldBy: {
+          label: 'Author denormalized Instance',
+        }
+      },
+    },
+    // NOTE:
+    // "postInstance"-property will be generated
+  },
+  UpdateCreatedSchema
+])
+
+CommentsSimple.attachDenormalizedSchema({
   comment: {
     type: String,
   },
@@ -52,8 +137,9 @@ CommentsSimple.attachSchema(Denormalize.simpleSchema({
     denormalize: {
       relation: Denormalize.RELATION_MANY_TO_ONE,
       relatedCollection: PostsSimple,
-      fieldsToPick: ['post'],
-      customOptions: {
+      relatedReference: 'commentIds',
+      pickAttributes: ['post'],
+      extendCacheFieldBy: {
         // the content of this object is attached to the generated instance-field
         label: 'Posts Instance',
         // keep for reference - this needs to work, when AutoForm is installed
@@ -65,13 +151,14 @@ CommentsSimple.attachSchema(Denormalize.simpleSchema({
     },
   },
   // NOTE:
-  // "postInstance"-property will be generated
-}))
-// CommentsSimple.attachSchema([CommentsSimple.Schema, Denormalize.generateSchema({})])
-PostsSimple.attachSchema(Denormalize.simpleSchema({
+  // "postCache"-property will be generated
+})
+
+PostsSimple.attachDenormalizedSchema({
   post: {
     type: String,
   },
+
   // RELATION: ONE-TO-MANY (SIMPLE FLAT-MODE)
   //  1 Post can have Many comments.
   commentIds: {
@@ -81,12 +168,27 @@ PostsSimple.attachSchema(Denormalize.simpleSchema({
     denormalize: {
       relation: Denormalize.RELATION_ONE_TO_MANY,
       relatedCollection: CommentsSimple,
-      fieldsToPick: ['comment'],
+      relatedReference: 'postId',
+      pickAttributes: ['comment'],
     },
   },
-  // NOTE:
-  // "commentInstances"-property will be generated
-}))
+  // "commentCache.instances"-property will be generated
+
+  // RELATION: MANY-TO-ONE
+  //  Many Posts can belong to 1 Author.
+  authorId: {
+    // WRITABLE array-field
+    // type: String,  // will be set
+    optional: false,  // mandatory
+    denormalize: {
+      relation: Denormalize.RELATION_MANY_TO_ONE,
+      relatedCollection: AuthorsSimple,
+      relatedReference: 'postIds',
+      pickAttributes: ['name'],
+    },
+  },
+  // "authorCache"-property will be generated
+})
 
 // TESTS
 if (Meteor.isServer) {
@@ -96,6 +198,50 @@ if (Meteor.isServer) {
       expect(Denormalize).to.be.defined
     })
 
+    xit('CollectionHooks-package allows us to instanciate multiple hook-functions. All hooks defined hook-functions will be run.', function () {
+      const aSchema = new SimpleSchema({
+        test: {
+          type: String,
+        },
+        insertHook1: {
+          type: String,
+          optional: true,
+        },
+        insertHook2: {
+          type: String,
+          optional: true,
+        },
+      })
+      aCollection.attachSchema(aSchema)
+      // define 2 hooks to test if they are both run
+      aCollection.after.insert(function (userId, doc) {
+        aCollection.update(this._id, { $set: { insertHook1: 'insertHook1 was here' } })
+      })
+      aCollection.after.insert(function (userId, doc) {
+        aCollection.update(this._id, { $set: { insertHook2: 'insertHook2 was here' } })
+      })
+      // do an insert, to trigger the hooks
+      const docId = aCollection.insert({
+        test: 'test insert'
+      })
+      // check
+      const doc = aCollection.findOne(docId)
+      expect(doc.test).to.equal('test insert')
+      expect(doc.insertHook1).to.equal('insertHook1 was here')
+      expect(doc.insertHook2).to.equal('insertHook2 was here')
+    })
+
+    xit('_getCacheNameFromReferenceKey() works as expeced', function () {
+      expect(Denormalize._getCacheNameFromReferenceKey('postIds')).to.equal('postCache')
+      expect(Denormalize._getCacheNameFromReferenceKey('posts.$.postIds')).to.equal('posts.$.postCache')
+    })
+
+    xit('_getModeForKey() works as expeced', function () {
+      expect(Denormalize._getModeForKey('postIds')).to.equal(Denormalize.MODE_FLAT)
+      expect(Denormalize._getModeForKey('posts.$.postIds')).to.equal(Denormalize.MODE_EMBEDDED)
+    })
+
+    /*
     it('generateSimpleSchema-function works as expected', function () {
       // TEST: simple schema WITHOUG overwrite
       const schema = Denormalize.generateSimpleSchema(
@@ -106,8 +252,8 @@ if (Meteor.isServer) {
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
               relatedCollection: new Object(),
-              fieldsToPick: ['post'],
-              customOptions: {
+              pickAttributes: ['post'],
+              extendCacheFieldBy: {
                 label: 'Posts Instance',
                 autoform: {
                   type: 'select-checkbox',
@@ -134,8 +280,8 @@ if (Meteor.isServer) {
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
               relatedCollection: new Object(),
-              fieldsToPick: ['post'],
-              customOptions: {
+              pickAttributes: ['post'],
+              extendCacheFieldBy: {
                 label: 'Posts Instance',
                 autoform: {
                   type: 'select-checkbox',
@@ -154,16 +300,22 @@ if (Meteor.isServer) {
       expect(schema2.postInstance.autoform.type).to.equal('select-checkbox')
       expect(schema2.postInstance.autoform.omit).to.equal('overwrite standard')
     })
+    */
 
-    it('Example 1 (one to many) works with insert and assignment from comments ', function () {
+    xit('Example 1 - Szenario 1 works', function () {
       // Init
+      AuthorsSimple.remove({})
       CommentsSimple.remove({})
       PostsSimple.remove({})
 
       // Scenario
       // 1) insert a new post
       // 2) insert a new comment and assign it to post
+      const authorId = AuthorsSimple.insert({
+        name: 'author1',
+      })
       const postId = PostsSimple.insert({
+        authorId,
         post: 'post 1',
       })
       const commentId = CommentsSimple.insert({
@@ -172,46 +324,73 @@ if (Meteor.isServer) {
       })
 
       // Test: did it work?
+      const author = AuthorsSimple.findOne(authorId)
       const post = PostsSimple.findOne(postId)
       const comment = CommentsSimple.findOne(commentId)
-      expect(comment.postId).to.equal(postId)
-      expect(comment.postInstance.post).to.equal('post 1')
 
-      // TODOD (this actually triggers collection hooks)
-      // expect(post.commentIds).to.deep.equal([commentId])
-      // expect(post.commentInstances.length).to.equal(1)
-      // expect(post.commentInstances[0].comment).to.equal('comment 1')
+      // authors
+      expect(author.postIds).to.deep.equal([postId])
+      expect(author.postCache.instances.length).to.equal(1)
+      expect(author.postCache.instances[0].post).to.equal('post 1')
+
+      // comments
+      expect(comment.postId).to.equal(postId)
+      expect(comment.postCache.post).to.equal('post 1')
+
+      // posts
+      expect(post.authorId).to.equal(authorId)
+      expect(post.authorCache.name).to.equal('author1')
+      expect(post.commentIds).to.deep.equal([commentId])
+      expect(post.commentCache.instances.length).to.equal(1)
+      expect(post.commentCache.instances[0].comment).to.equal('comment 1')
     })
 
-    it('Example 1 (one to many) works with insert and assignment from posts', function () {
+    it('Example 1 - Szenario 2 works ', function () {
       // Init
+      AuthorsSimple.remove({})
       CommentsSimple.remove({})
       PostsSimple.remove({})
 
       // Scenario
-      // 1) insert a new comment
-      // 2) insert a new post and assign it to comment
+      // 1) insert a comment
+      // 2) insert a author
+      // 3) insert a post
       const commentId = CommentsSimple.insert({
         comment: 'comment 1',
       })
+      const authorId = AuthorsSimple.insert({
+        name: 'author1',
+      })
       const postId = PostsSimple.insert({
+        authorId,
         post: 'post 1',
         commentIds: [
           commentId,
-        ],
+        ]
       })
 
       // Test: did it work?
+      const author = AuthorsSimple.findOne(authorId)
       const post = PostsSimple.findOne(postId)
       const comment = CommentsSimple.findOne(commentId)
-      expect(post.commentIds).to.deep.equal([commentId])
-      expect(post.comments.instances.length).to.equal(1)
-      expect(post.comments.instances[0].comment).to.equal('comment 1')
 
-      // TODOD after CollectionHooks
-      // expect(comment.postId).to.equal(postId)
-      // expect(comment.postInstance.post).to.equal('comment 1')
+      // authors
+      expect(author.postIds).to.deep.equal([postId])
+      expect(author.postCache.instances.length).to.equal(1)
+      expect(author.postCache.instances[0].post).to.equal('post 1')
+
+      // comments
+      expect(comment.postId).to.equal(postId)
+      expect(comment.postCache.post).to.equal('post 1')
+
+      // posts
+      expect(post.authorId).to.equal(authorId)
+      expect(post.authorCache.name).to.equal('author1')
+      expect(post.commentIds).to.deep.equal([commentId])
+      expect(post.commentCache.instances.length).to.equal(1)
+      expect(post.commentCache.instances[0].comment).to.equal('comment 1')
     })
+
   })
 }
 
@@ -275,8 +454,8 @@ PostsEnhanced.Schema = new SimpleSchema({
     denormalize: {
       relation: RELATION_ONE_TO_MANY,
       relatedCollection: PostsSimple,
-      fieldsToPick: ['post'],
-      customOptions: {
+      pickAttributes: ['post'],
+      extendCacheFieldBy: {
         // MERGE INTO FLAT
       }
     },

@@ -26,6 +26,9 @@ Package.onUse(function(api) {
     'aldeed:collection2@2.9.1',       // todo check minimal required version
     'matb33:collection-hooks@0.8.3',  // todo check minimal required version
   ])
+  api.add_files([
+    'collection-hooks.js',
+  ], 'server')
   api.mainModule('denormalization.js')
 })
 

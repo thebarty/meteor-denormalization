@@ -3,8 +3,7 @@
  */
 import _ from 'underscore'
 import s from 'underscore.string'
-const validateOptions = require('validate-options') // NPM helper https://www.npmjs.com/package/validate-options
-                                                    // note: import {} will NOT work here!
+import { CollectionHooks } from 'meteor/thebarty:denormalization'
 
 // ===========================================================
 // INITIALISATION AND LITTLE HELPER
@@ -17,22 +16,7 @@ SimpleSchema.extendOptions({
 })
 
 // Test if autoform is active
-export let AUTOFORM_IS_ACTIVE  // needed for tests
-try {
-  // there is NO other way to find out if AutoForm is active
-  //  so lets find it out
-  new SimpleSchema({
-    test: {
-      type: String,
-      autoform: {  // only allowed by AutoForm. Otherwise SimpleSchema will throw an error
-        omit: true,
-      },
-    }
-  })
-  AUTOFORM_IS_ACTIVE = true
-} catch (e) {
-  AUTOFORM_IS_ACTIVE = false
-}
+export const AUTOFORM_IS_ACTIVE = Package['aldeed:autoform']
 
 /**
  * [debug description]
@@ -65,344 +49,245 @@ function extend (target) {
   return target;
 }
 
+/**
+ * Attach helper
+ * @param  {[type]} ss      [description]
+ * @param  {[type]} options [description]
+ * @return {[type]}         [description]
+ */
+Mongo.Collection.prototype.attachDenormalizedSchema = function attachDenormalizedSchema(schemas, options = {}) {
+  // make sure that we always have an array
+  if (!_.isArray(schemas)) {
+    schemas = [schemas]
+  }
+
+  // loop thru array of schemas
+  //  build cache field
+  //  attach collection hooks
+  let denormalizedSchemas = []
+  for (const schema of schemas) {
+    const denormalizedSchema = Denormalize.generateSimpleSchema(schema, AUTOFORM_IS_ACTIVE)
+    denormalizedSchemas.push(denormalizedSchema)
+    Denormalize.hookMeUp(this, schema)
+  }
+  // attach "denormalized"-Schemas via standard SimpleSchema.attachSchema
+  this.attachSchema(denormalizedSchemas)
+}
+
 // ===========================================================
 // DENORMALIZE CLASS
 // ===========================================================
 export const Denormalize = class Denormalize {
-  /**
-   * This function takes a SimpleSchema-Definition, which might contain "denormalize"-settings
-   *  and turns it into a denormalized SimpleSchema, that automatically loads instances
-   *  of referenced docs from the related collection, mainly via the ``autoValue`` function.
-   *
-   * Use this function when attaching your schema to the collection,
-   *  p.e. like ``CommentsSimple.attachSchema(Denormalize.simpleSchema({ ... }))``
-   *  where "{ ... }" is your schema-definition including "denormalize"-settings.
-   *
-   * @param  {[type]} schema [description]
-   * @return {[type]}        [description]
-   */
-  static simpleSchema(schema) {
-    return new SimpleSchema(Denormalize.generateSimpleSchema(schema, AUTOFORM_IS_ACTIVE))
+  static _findDenormalizedKeysInSchema(schema) {
+    const returnKeys = []
+    // find properties with "denormalize"-settings
+    for (const key of _.keys(schema)) {
+      // is the property called according our conventions?
+      if (s.endsWith(key, 'Id') || s.endsWith(key, 'Ids')) {
+        // does this property have a "denormalize"-setting?
+        if (schema[key]['denormalize']) {
+          returnKeys.push(key)
+        }
+      }
+    }
+    return returnKeys
+  }
+
+  static _getModeForKey(key) {
+    if (s.contains(key, '$')) {
+      return Denormalize.MODE_EMBEDDED
+    } else {
+      return Denormalize.MODE_FLAT
+    }
+  }
+
+  static _getCacheNameFromReferenceKey(key) {
+    return `${s.strLeft(key, 'Id')}Cache`
+  }
+
+  static _validateDenormalizedSettings(schema, key) {
+    const settings = schema[key]['denormalize'] || {}
+    // base-validation
+    new SimpleSchema({
+      relation: { type: String, allowedValues: [
+        Denormalize.RELATION_MANY_TO_ONE,
+        Denormalize.RELATION_ONE_TO_MANY,
+        // other relations NOT YET supported
+      ] },
+      relatedCollection: { type: Mongo.Collection },
+      relatedReference: { type: String, optional: true },
+      pickAttributes: { type: [String], optional: true },
+      omitAttributes: { type: [String], optional: true },
+      extendCacheFieldBy: { type: Object, optional: true, blackbox: true, }
+    }).validate(settings)
+    debug('settings', settings)
+
+    // more detailed validation
+    if (settings.relation===Denormalize.RELATION_MANY_TO_ONE) {
+      // "relatedReference" is mandatory
+      if (!Match.test(settings.relatedReference, String)) {
+        throw new Error(`you need to define "relatedReference" when using a "RELATION_MANY_TO_ONE"-relation for property "${key}"`)
+      }
+      // "relatedReference"-field needs to exist in schema of relatedCollection
+      //  simpleSchema is NOT available during instanciation of the collections
+      if (settings.relatedCollection.simpleSchema()
+          && !_.contains(settings.relatedCollection.simpleSchema()._schemaKeys, settings.relatedReference)) {
+        throw new Error(`within key "${key}" you are referencing relatedReference to "${settings.relatedCollection._name}.${settings.relatedReference}", BUT this property does NOT exist in collection "${settings.relatedCollection._name}"`)
+      }
+
+    }
+  }
+
+  static hookMeUp(collection, schema) {
+    // create insert- update- remove-hooks
+    debug(`hookMeUp for collection "${collection._name}"`)
+
+    const denormalizedKeys = Denormalize._findDenormalizedKeysInSchema(schema)
+    for (const key of denormalizedKeys) {
+      debug(`processing denormalized key "${key}" `)
+      Denormalize._validateDenormalizedSettings(schema, key)
+      const { relation, relatedCollection, relatedReference, pickAttributes, omitAttributes, extendCacheFieldBy } = schema[key]['denormalize']
+      const mode = Denormalize._getModeForKey(key)
+      const cacheName = Denormalize._getCacheNameFromReferenceKey(key)
+
+      if (relation===Denormalize.RELATION_MANY_TO_ONE) {
+        // "RELATION_MANY_TO_ONE"
+        //  example: MANY "comments" can belong to ONE post
+        //  WE ARE IN THE "COMMENTS"-COLLECTION
+        //   1) referenceProperty: comments.postId
+        //   2) cacheProperty:     comments.postCache:
+
+        // INSERT-HOOK (p.e. "a comment is inserted")
+        collection.after.insert(function (userId, doc) {
+          debug('=====================================================')
+          debug(`${collection._name}.after.insert - field ${key}`)
+          const docId = this._id
+          const referenceId = doc[key]
+          if (referenceId) {
+            // collection (p.e. comment):
+            //  * fill the cacheProperty by loading from related collection
+            //  (p.e. "postCache" by "postId")
+            const docForCache = Denormalize._pickAndOmitFields(relatedCollection.findOne(referenceId), pickAttributes, omitAttributes)
+            const jsonModifier = `{"$set": {"${cacheName}": ${JSON.stringify(docForCache)} } }`
+            const modifier = JSON.parse(jsonModifier)
+            const updates = collection.direct.update(doc._id, modifier)
+            debug(`${updates} docs updated in collection ${collection._name}`)
+
+            // relatedCollection (p.e. post):
+            //  * add comment._id to postIds
+            //  * add comment-instance to postCache
+            const cacheNameInRelatedCollection = Denormalize._getCacheNameFromReferenceKey(relatedReference)
+            const jsonSelector = `{ "_id": "${referenceId}" }`
+            const selector = JSON.parse(jsonSelector)
+            const docInRelatedCollection = relatedCollection.findOne(selector)
+            // .. relatedReference
+            docInRelatedCollection[relatedReference] = docInRelatedCollection[relatedReference] || []
+            docInRelatedCollection[relatedReference].push(docId)
+            // .. cacheNameInRelatedCollection
+            if (!docInRelatedCollection[cacheNameInRelatedCollection]
+              || (docInRelatedCollection[cacheNameInRelatedCollection]
+                && !ocInRelatedCollection[cacheNameInRelatedCollection].instances)) {
+              docInRelatedCollection[cacheNameInRelatedCollection] = { instances: [] }
+            }
+            docInRelatedCollection[cacheNameInRelatedCollection].instances.push(doc)
+            const updates2 = relatedCollection.direct.update(docInRelatedCollection._id, { $set: docInRelatedCollection }, {bypassCollection2: true, validate: false, filter: false, autoConvert: false, removeEmptyStrings:false, getAutoValues: false })
+            debug(`${updates2} docs updated in collection ${relatedCollection._name}`)
+          }
+        })
+
+        // UPDATE-HOOK (p.e. "a comment is updated")
+        //  * collection: (p.e. "comment")
+        //    * did postId change or was it removed? If yes: refill the
+        //      cacheProperty by loading from related collection. If it was removed:
+        //      set "postId: null" && "postCache: null"
+        //      (p.e. fill "postCache" by new "postId")
+        //  * relatedCollection (p.e. post):
+        //    * did collection.postId change or was it removed? If yes: in the old referenceId: Remove commentId from commentIds (including commentCache) and in NEW referneceID: add commentId and commentCache.
+        //    * Whenever a standard-property of "collection" has changed:
+        //      reload the chached-version in relatedCollection.
+        //    * If "collection._id" was remove, remove it from "relatedCollection"
+        //
+        // REMOVE-HOOK
+        //  * collection (p.e. comment):
+        //  * relatedCollection (p.e. post):
+        //    * remove _id from comment._id to postIds
+        //    * remove _id forom postCache
+      }
+    }
   }
 
   /**
-   * For easier testing this is a separate function
+   * Build the denormalized schema, that contains valid
+   *  reference- and cache-property. Our main introduce the cache-property
+   *  to SimpleSchema and allow it to exist.
+   *
+   * Background info: For easier testing this is a separate function
    *  and added "autoFormIsActive" parameter, so we can set it from outside.
    *
    * @return {Object} Schema-Definition as pure JS-Object
    */
   static generateSimpleSchema(schema, autoFormIsActive) {
     let returnSchema = schema
-    // 1) read schema and find "denormalize"-settings
-    for (const key of _.keys(schema)) {
-      // does this property have a "denormalize"-setting?
-      if (s.endsWith(key, 'Id') || s.endsWith(key, 'Ids')) {
-        // what MODE are we in?
-        let mode
-        if (s.contains('$')) {
-          mode = Denormalize.MODE_EMBEDDED
-        } else {
-          mode = Denormalize.MODE_FLAT
-        }
 
-        // are settings really available?
-        const denormalize = schema[key]['denormalize']
-        if (denormalize) {
-          debug(`property ${key} has denormalize settings`)
-          const { relation, relatedCollection, fieldsToPick, customOptions } = denormalize
-          // are settings complete?
-          if (!relation) {
-            throw new Error(`Missing "relation"-setting for property "${key}"`)
-          }
-          if (relation===Denormalize.RELATION_MANY_TO_ONE) {
-            // "RELATION_MANY_TO_ONE"
-            // are settings complete?
-            const instanceFieldName = `${s.strLeft(key, 'Id')}Instance`
-            if (!relatedCollection) {
-              throw new Error(`Missing "relatedCollection"-setting for property "${key}"`)
-            }
-            // Make some settings to the ID-FIELD
-            schema[key]['type'] = String
+    // Loop thru schema, validate "denormalized" and extend the schema with
+    //  an valid reference and cache field
+    const denormalizedKeys = Denormalize._findDenormalizedKeysInSchema(schema)
+    for (const key of denormalizedKeys) {
+      debug(`processing denormalized key "${key}" `)
 
-            // Build the INSTANCE-FIELD with all the properties needed
-            const instanceField = {}
-            instanceField.type = Object
-            instanceField.optional = schema[key]['optional'] || false
-            instanceField.blackbox = true
-            instanceField.autoValue = function() {
-              // call our helper function that returns an autoValue mongo-modifier
-              return Denormalize.autoValueOneToOne({
-                relation,
-                relatedCollection,
-                fieldsToPick,
-                referenceField: key,
-                autoValueContext: this,
-              })
-            }
-            // hide from autoform (if installed)
-            if (autoFormIsActive) {
-              instanceField.autoform = {
-                omit: true,
-              }
-            }
-            // customOptions are simply attached to the root of the new field
-            if (customOptions) {
-              // we do NOT want to let customOptions overwrite
-              //  nested properties, p.e. "autoform.omit" when the nested property itself
-              //  (p.e. "omit") is NOT set in "customOptions. Still we want to give customOptions priority.
-              extend(instanceField, customOptions)
-            }
-            // attach instancefield to schema
-            returnSchema[instanceFieldName] = instanceField
-            debug(`denormalized data for id-field "${key}" is available in "${relatedCollection._name}.${instanceFieldName}" `)
+      const mode = Denormalize._getModeForKey(key)
+      Denormalize._validateDenormalizedSettings(schema, key)
+      const { relation, relatedCollection, pickAttributes, extendCacheFieldBy } = schema[key]['denormalize']
 
-          } else if (relation===Denormalize.RELATION_ONE_TO_MANY) {
-            // RELATION_ONE_TO_MANY
-            // are settings complete?
-            const instanceFieldName = `${s.strLeft(key, 'Id')}s`
-            if (!relatedCollection) {
-              throw new Error(`Missing "relatedCollection"-setting for property "${key}"`)
-            }
-            // Make some settings to the ID-FIELD
-            schema[key]['type'] = [String]
+      const cacheName = Denormalize._getCacheNameFromReferenceKey(key)
 
-            // Build the INSTANCE-FIELD with all the properties needed
-            const instanceField = {}
-            instanceField.type = Object  // SimpleSchema did NOT allow us to save an Array of Objects
-                                         //  so our workaround is to save the array like "postInstaces.instances[].*"
-            instanceField.optional = schema[key]['optional'] || false
-            instanceField.blackbox = true
-            instanceField.autoValue = function() {
-              // call our helper function that returns an autoValue mongo-modifier
-              return Denormalize.autoValueOneToMany({
-                relation,
-                relatedCollection,
-                fieldsToPick,
-                referenceField: key,
-                instanceField: instanceFieldName,
-                autoValueContext: this,
-              })
-            }
-            // hide from autoform (if installed)
-            if (autoFormIsActive) {
-              instanceField.autoform = {
-                omit: true,
-              }
-            }
-            // customOptions are simply attached to the root of the new field
-            if (customOptions) {
-              // we do NOT want to let customOptions overwrite
-              //  nested properties, p.e. "autoform.omit" when the nested property itself
-              //  (p.e. "omit") is NOT set in "customOptions. Still we want to give customOptions priority.
-              extend(instanceField, customOptions)
-            }
-            // attach instancefield to schema
-            returnSchema[instanceFieldName] = instanceField
-            debug(`denormalized data for id-field "${key}" is available in "${relatedCollection._name}.${instanceFieldName}.instances" `)
+      // add settings to reference-property
+      if (relation===Denormalize.RELATION_MANY_TO_ONE) {
+        schema[key]['type'] = String
+      } else if (relation===Denormalize.RELATION_ONE_TO_MANY) {
+        schema[key]['type'] = [String]
+      }
 
-          } else {
-            throw new Error(`RELATION-TYPE NOT YET SUPPORTED`)
-          }
+      // Build the CACHE-PROPERTY
+      const cacheProperty = {}
+      // settings that CAN be overwritten by "extendCacheFieldBy"
+      // hide from autoform (if installed)
+      if (autoFormIsActive) {
+        cacheProperty.autoform = {
+          omit: true,
         }
       }
+      // extendCacheFieldBy are simply attached to the root of the new field
+      if (extendCacheFieldBy) {
+        // we do NOT want to let extendCacheFieldBy overwrite
+        //  nested properties, p.e. "autoform.omit" when the nested property itself
+        //  (p.e. "omit") is NOT set in "extendCacheFieldBy. Still we want to give extendCacheFieldBy priority.
+        extend(cacheProperty, extendCacheFieldBy)
+      }
+      // settings that CAN NOT be overwritten by "extendCacheFieldBy"
+      cacheProperty.type = Object
+      cacheProperty.optional = true
+      cacheProperty.blackbox = true
+      // attach instancefield to schema
+      returnSchema[cacheName] = cacheProperty
+      debug(`denormalized data for id-field "${key}" will be available in "${relatedCollection._name}.${cacheName}" `)
     }
-    debug('generated denormalized SimpleSchema', returnSchema)
+    debug('generated denormalized SimpleSchema:', returnSchema)
     return returnSchema
   }
 
-  /**
-   * DENORMALISATION-Helper for ``SimpleSchema.autoValue()``
-   *  to hook up 2 relatedCollection via a "ONE-TO-ONE" relationship,
-   *  p.e. "1 project has 1 contact".
-   *
-   * In this case, in the project relatedCollection you would have 2 fields:
-   *  1) ``Project.contactId`` - meant for WRITE-ACCESS
-   *  2) ``Project.contactInstance`` - meant for READ-ACCESS.
-   *      Put this function into the ``autoValue``-function of this field.
-   *
-   * Within 2) this function will then save an instance of an document by loading it from the related relatedCollection
-   *  **whenever the value of the referenceField (contactId) changes**!!
-   *
-   * The sibilingField saves the DocID!
-   * The instanceField (options.instance) saves the full instance of the doc!
-   *
-   * SECURITY - BEST WAY TO USE:
-   * Use the ``fieldsToPick`` to explicitly pass an array of fields to save.
-   *
-   * NOTE:
-   * This is **STRICTLY COUPLED** to be used together with **``CollectionHooksHelper.cascadeUpdateRelatedCollection``**.
-   * You also need also setup CollectionHooks on the original Collection
-   * in order to sync diffs in the original document to this instance.
-   *
-   * The COLLECTION HOOK will simply touch the docId of the sibilingField
-   * and this function here (autoValue) will load the docInstance!
-   *
-   * EXAMPLE:
-   *  fromContactInstance: {
-   *    type: Object,
-   *    blackbox: true, // skip validation for all included fiels
-   *    optional: true,
-   *    autoValue: function () {
-   *      return Collection2Helper.returnAutoValueForSibilingFieldOneToOne({
-   *        instance: this,
-   *        referenceField: 'fromContactId',
-   *        relatedCollection: Contacts.Collection,
-   *        fieldsToPick: ['profileSecure'],
-   *        fieldsToOmit: ['unsecure'],
-   *      });
-   *    },
-   *    autoform: {
-   *      omit: true,
-   *    },
-   *  },
-   *
-   * PARAMETERS:
-   * .. mandatory
-   * @param instance      Instance of ``autoform.autovalue.this`
-   * @param referenceField  Name of the sibling field (as String)
-   * @param relatedCollection    Instance of Collection
-   *
-   * .. optional:
-   * @param fieldsToPick  Array of fields to pick before returning (BEST OPTION, SECURE!)
-   * @param fieldsToOmit  Array of fields to omit before returning
-   */
-  static autoValueOneToOne (options) {
-    validateOptions.hasAll(options, 'autoValueContext', 'referenceField', 'relatedCollection')
-    // optional fieldsToOmit
-    // optional fieldsToPick
-
-    // log('returnAutoValueForSibilingFieldOneToOne for ' + options.referenceField);
-
-    var sibilingIdField = options.autoValueContext.field(options.referenceField);
-
-    // is the field set and does it have a value?
-    if (sibilingIdField.isSet && sibilingIdField.value) {
-      // set
-      var autoValueContext = options.relatedCollection.findOne({'_id': sibilingIdField.value});
-
-      // REMOVE "_id" - otherwise SimpleSchema will throw an "not an object" error!
-      autoValueContext = _.omit(autoValueContext, ['_id']);
-
-      if (options.fieldsToOmit) {
-        // omit (= omit fields, POTENTIALLY UNSECURE)
-        return _.omit(autoValueContext, options.fieldsToOmit);
-      } else if (options.fieldsToPick) {
-        // pick (= SECURELY pick the fields to save)
-        //  .. always save '_id'
-        return _.pick(autoValueContext, options.fieldsToPick)
-      } else {
-        // standard (= save ALL fields, POTENTIALLY UNSECURE)
-        return autoValueContext;
-      }
-    } else if (sibilingIdField.isSet) {
-      // ONLY unset, if sibiling field is set!
-      // unset (remove from document)
-      return { $unset: '' };
+  static _pickAndOmitFields(doc, pickAttributes, omitAttributes) {
+    check(doc, Object)
+    check(pickAttributes, Match.Maybe([String]))
+    check(omitAttributes, Match.Maybe([String]))
+    let returnDoc = doc
+    if (pickAttributes) {
+      returnDoc = _.pick(returnDoc, pickAttributes)
     }
-  }
-
-  /**
-   * DENORMALISATION-Helper for ``SimpleSchema.autoValue()``
-   *  to hook up 2 relatedCollection via a "ONE-TO-MANY", or "MANY-TO-MANY" relationship,
-   *  p.e. "1 product has m categories".
-   *
-   * In this case, in the products relatedCollection you would have 2 fields:
-   *  1) "Products.categoryIds" - meant for WRITE-ACCESS
-   *  2) "Product.categoryInstances" - meant for READ-ACCESS.
-   *      Put this function into the ``autoValue``-function of this field.
-   *
-   * Placed within 2), this function will then RELOAD instances into ``Product.categoryInstances``
-   *  whenever ``Products.categoryIds`` change.
-   *
-   * We support 2 MODES:
-   *  1) FLAT-mode, where ids and instances are attached right at the doc-root,
-   *     p.e. "Products.categoryIds" & "Product.categoryInstances"
-   *  2) EMBEDDED-ARRAY-mode, where ids are attached in an embedded array with additional data,
-   *     p.e. "Projects.suppliers.contactId" (together with other additional data, like order)
-   *      and "Projects.supplierInstances" (with instances of contact-fields)
-   *     NOTE: the best way would be to denormalize into "Projects.suppliers.contactInstance",
-   *      BUT we did not find a good way to do this yet!!!
-   *
-   * NOTE: this is strictly-coupled with our ``CollectionHooksHelper
-   *   .afterInsertHookOneToMany
-   *   .afterUpdateHookOneToMany
-   *   .afterRemoveHookOneToMany``-helper. You need to implement those to make sure
-   *   that ``autoValue`` is run in the Collection.
-   *
-   * BACKGROUND:
-   *  simple schema does NOT support ``type=array``,
-   *  so this is our workaround: we save an array within an object
-   *  as ``categories.instances``
-   *
-   * @param  {Object} options.referenceField the "id"-field in the sourceCollection we are refering to on changes. Should be renamed to "sourceFieldId"
-   * @param  {Object} options.sourceFieldInstance the "fieldName" of the "instance"-field in the source-relatedCollection
-   */
-  static autoValueOneToMany(options = {}) {
-    validateOptions.hasAll(options, 'autoValueContext', 'referenceField', 'instanceField', 'relatedCollection')
-    // optional fieldsToOmit
-    // optional fieldsToPick
-    const { autoValueContext, referenceField, instanceField, relatedCollection, fieldsToOmit, fieldsToPick } = options
-
-    let isEmbeddedArrayMode = false
-    let embeddedArrayFieldRoot
-    let embeddedArrayFieldIdField
-    if (s.contains(referenceField, '.$.')) {
-      // embedded Array field, p.e. "suppliers.$.contactId"
-      isEmbeddedArrayMode = true
-      const parts = referenceField.split('.$.')  // = SimpleSchema field-convention
-      embeddedArrayFieldRoot = parts[0]
-      embeddedArrayFieldIdField = parts[1]
-      if (!embeddedArrayFieldRoot || !embeddedArrayFieldIdField) {
-        throw new Error('wrong use of returnAutoValueForFieldOneToMany: when passing the "referenceField"-parameter for embedded array, pass the FULL simple-schema fieldname, p.e. like "suppliers.$.contactId"')
-      }
+    if (omitAttributes) {
+      returnDoc = _.omit(returnDoc, omitAttributes)
     }
-
-    let fieldContext
-    if (isEmbeddedArrayMode) {
-      // "embedded-array"-mode, p.e. ".suppliers.contactId/comment/order/*"
-      //  and instance-field ".supplierInstances"
-      fieldContext = autoValueContext.field(embeddedArrayFieldRoot)
-    } else {
-      // "flat"-mode, p.e. id field ".productIds" and instance-field ".productInstances"
-      fieldContext = autoValueContext.field(referenceField)
-    }
-
-    // is the field set and does it have a value?
-    if (fieldContext.isSet && fieldContext.value) {
-      const values = fieldContext.value
-      if (values) {
-        const returnValue = []
-        for (const value of values) {
-          // find value of "_id"-field depending on mode
-          let idValue
-          if (isEmbeddedArrayMode) {
-            // embedded mode: we are in the embedded array-object p.e. "suppliers[].*"
-            //  and need to grab the id-field, p.e. "suppliers[].contactid"
-            idValue = value[embeddedArrayFieldIdField]
-          } else {
-            // flat mode
-            idValue = value
-          }
-          let doc = relatedCollection.findOne({ _id: idValue })
-          doc = _.omit(doc, instanceField)  // prevent loop and remove reference
-          // clean if wanted
-          if (fieldsToOmit) {
-            // omit (= omit fields, POTENTIALLY UNSECURE)
-            doc = _.omit(doc, fieldsToOmit)
-          }
-          if (fieldsToPick) {
-            // pick (= SECURELY pick the fields to save)
-            doc = _.pick(doc, fieldsToPick)
-          }
-          returnValue.push(doc)
-        }
-        return { instances: returnValue }
-      }
-    } else if (fieldContext.isSet) {
-      // ONLY unset, if sibiling field is set!
-      // unset (remove from document)
-      return { $unset: '' }
-    }
+    return returnDoc
   }
 }
 Denormalize.RELATION_ONE_TO_MANY  = 'RELATION_ONE_TO_MANY'
