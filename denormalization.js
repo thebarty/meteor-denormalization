@@ -86,9 +86,8 @@ export const Denormalize = class Denormalize {
   }
 
   /**
-   * For easier testing this is a seperat function
-   *  and added "autoFormIsActive" parameter,
-   *  so we can set it from outside.
+   * For easier testing this is a separate function
+   *  and added "autoFormIsActive" parameter, so we can set it from outside.
    *
    * @return {Object} Schema-Definition as pure JS-Object
    */
@@ -118,15 +117,20 @@ export const Denormalize = class Denormalize {
           if (relation===Denormalize.RELATION_MANY_TO_ONE) {
             // "RELATION_MANY_TO_ONE"
             // are settings complete?
+            const instanceFieldName = `${s.strLeft(key, 'Id')}Instance`
             if (!relatedCollection) {
               throw new Error(`Missing "relatedCollection"-setting for property "${key}"`)
             }
-            const instanceFieldName = `${s.strLeft(key, 'Id')}Instance`
+            // Make some settings to the ID-FIELD
+            schema[key]['type'] = String
+
+            // Build the INSTANCE-FIELD with all the properties needed
             const instanceField = {}
             instanceField.type = Object
             instanceField.optional = schema[key]['optional'] || false
             instanceField.blackbox = true
             instanceField.autoValue = function() {
+              // call our helper function that returns an autoValue mongo-modifier
               return Denormalize.autoValueOneToOne({
                 relation,
                 relatedCollection,
@@ -150,6 +154,52 @@ export const Denormalize = class Denormalize {
             }
             // attach instancefield to schema
             returnSchema[instanceFieldName] = instanceField
+            debug(`denormalized data for id-field "${key}" is available in "${relatedCollection._name}.${instanceFieldName}" `)
+
+          } else if (relation===Denormalize.RELATION_ONE_TO_MANY) {
+            // RELATION_ONE_TO_MANY
+            // are settings complete?
+            const instanceFieldName = `${s.strLeft(key, 'Id')}s`
+            if (!relatedCollection) {
+              throw new Error(`Missing "relatedCollection"-setting for property "${key}"`)
+            }
+            // Make some settings to the ID-FIELD
+            schema[key]['type'] = [String]
+
+            // Build the INSTANCE-FIELD with all the properties needed
+            const instanceField = {}
+            instanceField.type = Object  // SimpleSchema did NOT allow us to save an Array of Objects
+                                         //  so our workaround is to save the array like "postInstaces.instances[].*"
+            instanceField.optional = schema[key]['optional'] || false
+            instanceField.blackbox = true
+            instanceField.autoValue = function() {
+              // call our helper function that returns an autoValue mongo-modifier
+              return Denormalize.autoValueOneToMany({
+                relation,
+                relatedCollection,
+                fieldsToPick,
+                referenceField: key,
+                instanceField: instanceFieldName,
+                autoValueContext: this,
+              })
+            }
+            // hide from autoform (if installed)
+            if (autoFormIsActive) {
+              instanceField.autoform = {
+                omit: true,
+              }
+            }
+            // customOptions are simply attached to the root of the new field
+            if (customOptions) {
+              // we do NOT want to let customOptions overwrite
+              //  nested properties, p.e. "autoform.omit" when the nested property itself
+              //  (p.e. "omit") is NOT set in "customOptions. Still we want to give customOptions priority.
+              extend(instanceField, customOptions)
+            }
+            // attach instancefield to schema
+            returnSchema[instanceFieldName] = instanceField
+            debug(`denormalized data for id-field "${key}" is available in "${relatedCollection._name}.${instanceFieldName}.instances" `)
+
           } else {
             throw new Error(`RELATION-TYPE NOT YET SUPPORTED`)
           }
@@ -284,26 +334,26 @@ export const Denormalize = class Denormalize {
    *  so this is our workaround: we save an array within an object
    *  as ``categories.instances``
    *
-   * @param  {Object} options.sourceFieldIds the "id"-field in the sourceCollection we are refering to on changes. Should be renamed to "sourceFieldId"
+   * @param  {Object} options.referenceField the "id"-field in the sourceCollection we are refering to on changes. Should be renamed to "sourceFieldId"
    * @param  {Object} options.sourceFieldInstance the "fieldName" of the "instance"-field in the source-relatedCollection
    */
-  static returnAutoValueForFieldOneToMany(options = {}) {
-    validateOptions.hasAll(options, 'context', 'sourceFieldIds', 'sourceFieldInstance', 'relatedCollection',)
+  static autoValueOneToMany(options = {}) {
+    validateOptions.hasAll(options, 'autoValueContext', 'referenceField', 'instanceField', 'relatedCollection')
     // optional fieldsToOmit
     // optional fieldsToPick
-    const { context, sourceFieldIds, sourceFieldInstance, relatedCollection, fieldsToOmit, fieldsToPick } = options
+    const { autoValueContext, referenceField, instanceField, relatedCollection, fieldsToOmit, fieldsToPick } = options
 
     let isEmbeddedArrayMode = false
     let embeddedArrayFieldRoot
     let embeddedArrayFieldIdField
-    if (s.contains(sourceFieldIds, '.$.')) {
+    if (s.contains(referenceField, '.$.')) {
       // embedded Array field, p.e. "suppliers.$.contactId"
       isEmbeddedArrayMode = true
-      const parts = sourceFieldIds.split('.$.')  // = SimpleSchema field-convention
+      const parts = referenceField.split('.$.')  // = SimpleSchema field-convention
       embeddedArrayFieldRoot = parts[0]
       embeddedArrayFieldIdField = parts[1]
       if (!embeddedArrayFieldRoot || !embeddedArrayFieldIdField) {
-        throw new Error('wrong use of returnAutoValueForFieldOneToMany: when passing the "sourceFieldIds"-parameter for embedded array, pass the FULL simple-schema fieldname, p.e. like "suppliers.$.contactId"')
+        throw new Error('wrong use of returnAutoValueForFieldOneToMany: when passing the "referenceField"-parameter for embedded array, pass the FULL simple-schema fieldname, p.e. like "suppliers.$.contactId"')
       }
     }
 
@@ -311,10 +361,10 @@ export const Denormalize = class Denormalize {
     if (isEmbeddedArrayMode) {
       // "embedded-array"-mode, p.e. ".suppliers.contactId/comment/order/*"
       //  and instance-field ".supplierInstances"
-      fieldContext = context.field(embeddedArrayFieldRoot)
+      fieldContext = autoValueContext.field(embeddedArrayFieldRoot)
     } else {
       // "flat"-mode, p.e. id field ".productIds" and instance-field ".productInstances"
-      fieldContext = context.field(sourceFieldIds)
+      fieldContext = autoValueContext.field(referenceField)
     }
 
     // is the field set and does it have a value?
@@ -334,7 +384,7 @@ export const Denormalize = class Denormalize {
             idValue = value
           }
           let doc = relatedCollection.findOne({ _id: idValue })
-          doc = _.omit(doc, sourceFieldInstance)  // prevent loop and remove reference
+          doc = _.omit(doc, instanceField)  // prevent loop and remove reference
           // clean if wanted
           if (fieldsToOmit) {
             // omit (= omit fields, POTENTIALLY UNSECURE)

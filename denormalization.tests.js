@@ -13,6 +13,7 @@ Denormalize.Debug = true
 // ===========================================
 // POSTS & COMMENTS: ONE-TO-MANY RELATIONSHIP
 
+// ===========================================
 // EXAMPLE 1: "ONE-TO-MANY FLAT MODE"-Approach
 //  for a "one-to-many"-relation between Posts and Comments
 //  "Comments" are stored into 2 fields:
@@ -30,6 +31,8 @@ Denormalize.Debug = true
 //       the _id of the related Comments.
 //   2) "Posts.commentInstances": read-only field that contains
 //       the full-denormalized instance of the related Comment.
+//
+// FIXTURES
 const PostsSimple = new Mongo.Collection('postssimple')
 const CommentsSimple = new Mongo.Collection('commentssimple')
 
@@ -61,57 +64,11 @@ CommentsSimple.attachSchema(Denormalize.simpleSchema({
       }
     },
   },
-  /*
-  comments: {
-    // Container for comments
-    type: [Object],
-    optional: true,
-  },
-  'comments.$.commentId': {
-    // WRITABLE field
-    type: String,
-    optional: false,
-    denormalize: {
-      relation: Denormalize.RELATION_ONE_TO_MANY,
-      relatedCollection: PostsSimple,
-      fieldsToPick: ['post'],
-      customOptions: {
-        // MERGE INTO FLAT
-      }
-    },
-  },
-  */
-  // 'comments.$.instance': {
-  //   // READ-only instances of Comments
-  //   type: String,
-  //   optional: false,
-  // },
-  // extra data
-  'comments.$.order': {
-    // extra data
-    type: String,
-    optional: false,
-  },
-
-  // postInstance: {
-  //   // READ field instances of related Post
-  //   type: Object,
-  //   optional: true,
-  //   blackbox: true,
-  //   autoValue: function () {
-  //     console.log(`autoValue postInstance`)
-  //     return Denormalize.getAutoValue({
-  //       relation: Denormalize.RELATION_MANY_TO_ONE,
-  //       autoValueContext: this,
-  //       referenceField: 'postId',
-  //       relatedCollection: PostsSimple,
-  //       fieldsToPick: ['post'],
-  //     })
-  //   },
-  // },
+  // NOTE:
+  // "postInstance"-property will be generated
 }))
 // CommentsSimple.attachSchema([CommentsSimple.Schema, Denormalize.generateSchema({})])
-PostsSimple.Schema = new SimpleSchema({
+PostsSimple.attachSchema(Denormalize.simpleSchema({
   post: {
     type: String,
   },
@@ -119,26 +76,19 @@ PostsSimple.Schema = new SimpleSchema({
   //  1 Post can have Many comments.
   commentIds: {
     // WRITABLE array-field
-    type: [String],
+    // type: [String],  // will be set
     optional: true,
     denormalize: {
       relation: Denormalize.RELATION_ONE_TO_MANY,
-      relatedCollection: PostsSimple,
-      fieldsToPick: ['post'],
-      customOptions: {
-        // MERGE INTO FLAT
-      }
+      relatedCollection: CommentsSimple,
+      fieldsToPick: ['comment'],
     },
   },
-  // commentInstances: {
-  //   // READ-only instances of Comments
-  //   type: [Object],
-  //   optional: true,
-  // },
-})
-PostsSimple.attachSchema(PostsSimple.Schema)
+  // NOTE:
+  // "commentInstances"-property will be generated
+}))
 
-// We are server only
+// TESTS
 if (Meteor.isServer) {
   describe('Denormalization works', function () {
     // BASIC IMPORT TEST
@@ -169,6 +119,7 @@ if (Meteor.isServer) {
         true  // AUTOFORM_IS_ACTIVE
       )
       expect(schema).to.be.defined
+      expect(schema.postId.type).to.equal(String)
       expect(schema.postInstance.autoValue).to.be.defined
       expect(schema.postInstance.label).to.equal('Posts Instance')
       expect(schema.postInstance.autoform.type).to.equal('select-checkbox')
@@ -178,7 +129,7 @@ if (Meteor.isServer) {
       const schema2 = Denormalize.generateSimpleSchema(
         {
           postId: {
-            type: String,
+            // type: String,  // this will be set
             optional: true,
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
@@ -197,6 +148,7 @@ if (Meteor.isServer) {
         true  // AUTOFORM_IS_ACTIVE
       )
       expect(schema2).to.be.defined
+      expect(schema2.postId.type).to.equal(String)
       expect(schema2.postInstance.autoValue).to.be.defined
       expect(schema2.postInstance.label).to.equal('Posts Instance')
       expect(schema2.postInstance.autoform.type).to.equal('select-checkbox')
@@ -225,28 +177,27 @@ if (Meteor.isServer) {
       expect(comment.postId).to.equal(postId)
       expect(comment.postInstance.post).to.equal('post 1')
 
-      // TODO
+      // TODOD (this actually triggers collection hooks)
       // expect(post.commentIds).to.deep.equal([commentId])
       // expect(post.commentInstances.length).to.equal(1)
       // expect(post.commentInstances[0].comment).to.equal('comment 1')
     })
 
-    /*
     it('Example 1 (one to many) works with insert and assignment from posts', function () {
       // Init
       CommentsSimple.remove({})
       PostsSimple.remove({})
 
       // Scenario
-      // 1) insert a new post
-      // 2) insert a new comment and assign it to post
+      // 1) insert a new comment
+      // 2) insert a new post and assign it to comment
       const commentId = CommentsSimple.insert({
         comment: 'comment 1',
       })
       const postId = PostsSimple.insert({
         post: 'post 1',
         commentIds: [
-          postId,
+          commentId,
         ],
       })
 
@@ -254,12 +205,13 @@ if (Meteor.isServer) {
       const post = PostsSimple.findOne(postId)
       const comment = CommentsSimple.findOne(commentId)
       expect(post.commentIds).to.deep.equal([commentId])
-      expect(post.commentInstances.length).to.equal(1)
-      expect(post.commentInstances[0].comment).to.equal('comment 1')
-      expect(comment.postId).to.equal(postId)
-      expect(comment.postInstance.post).to.equal('comment 1')
+      expect(post.comments.instances.length).to.equal(1)
+      expect(post.comments.instances[0].comment).to.equal('comment 1')
+
+      // TODOD after CollectionHooks
+      // expect(comment.postId).to.equal(postId)
+      // expect(comment.postInstance.post).to.equal('comment 1')
     })
-  */
   })
 }
 
@@ -342,3 +294,5 @@ PostsEnhanced.Schema = new SimpleSchema({
   },
 })
 */
+
+// TODO: EXAMPLE 3 MANY TO MANY Categories and Products
