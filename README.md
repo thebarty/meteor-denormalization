@@ -9,16 +9,54 @@
 
 # Meteor Collection2 Denormalization-Toolkit
 
-A denormalization-toolkit that allows you to specify your denormalization-relations (ONE-TO-MANY, MANY-TO-ONE, MANY-TO-MANY) within your SimpleSchema. It will then automatically denormalize the data between the specified collections and keep it in sync on ``insert``-, ``update``- and ``remove``-commands. It is made to be used with the aldeed:ecosystem ([SimpleSchema](https://github.com/aldeed/meteor-simple-schema), [Collection2](https://github.com/aldeed/meteor-collection2), [AutoForm](https://github.com/aldeed/meteor-autoform), [Tabular](https://github.com/aldeed/meteor-tabular/)).
+A denormalization-toolkit that handles the complete denormalization process for you. It allows you to specify your denormalization-relations (ONE-TO-MANY, MANY-TO-ONE, MANY-TO-MANY) within your SimpleSchema. It will then automatically denormalize the data between the specified collections and keep it in sync on ``insert``-, ``update``- and ``remove``-commands. It is designed to be **compatible the aldeed:ecosystem** ([SimpleSchema](https://github.com/aldeed/meteor-simple-schema), [Collection2](https://github.com/aldeed/meteor-collection2), [AutoForm](https://github.com/aldeed/meteor-autoform), [Tabular](https://github.com/aldeed/meteor-tabular/)).
+
+
+## Table of Contents
+
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+
+
+- [How does this work?](#how-does-this-work)
+  - [Introduction: "referenceProperties" and "cacheProperties"](#introduction-referenceproperties-and-cacheproperties)
+    - [referenceProperties](#referenceproperties)
+    - [cacheProperties](#cacheproperties)
+  - [A first example](#a-first-example)
+  - [Installation](#installation)
+  - [Basic Usage](#basic-usage)
+  - [ONE-TO-MANY Relationships](#one-to-many-relationships)
+  - [MANY-TO-ONE Relationships](#many-to-one-relationships)
+  - [MANY-TO-MANY Relationships.](#many-to-many-relationships)
+  - [How to contribute to this package](#how-to-contribute-to-this-package)
+  - [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
+  - [Background Infos](#background-infos)
+    - [Why denormalize?](#why-denormalize)
+    - [Resources](#resources)
+    - [Other related packages](#other-related-packages)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 # How does this work?
 
-It is always good to know whats inside - so this is how the magic works:
- 1. Within your SimpleSchema you'll define a relation your, p.e. when defining your "Posts"-schema you can hookup "Comments" like so:
+## Introduction: "referenceProperties" and "cacheProperties"
+
+With the help of this package your collections will store **writable foreign-keys** (in "referenceProperties") and **read-only instances** (in "cacheProperties").
+
+### referenceProperties
+You design your SimpleSchema by adding **"referenceProperties"** (p.e. ``Post.commentIds``) and adding the ``denormalize: { .. }``-attribute. By definition a referenceProperties is a property where foreign-keys (``Mongo._ids``) are stored. A referenceProperties is **writable**. P.e. you can use AutoForm to assign references.
+
+### cacheProperties
+For each "referenceProperty" this package will automatically create a **"cacheProperty"**, where full instances of the related doc will be stored. A cacheProperties is **read-only**.
+
+## A first example
+
+**In more details it works like this:**
+ 1. Within your SimpleSchema you'll define a relation, p.e. when defining your "Posts"-schema you can hookup "Comments" within the referenceProperty like so:
 ```js
   // "Posts"-schema definition
   // 1 Post can have Many comments
-  commentIds: {
+  commentIds: {  // = referenceProperty
     optional: true,
     denormalize: {
       relation: Denormalize.RELATION_ONE_TO_MANY,
@@ -26,9 +64,10 @@ It is always good to know whats inside - so this is how the magic works:
       relatedReference: 'postId',
     },
   }
+  // "commentCache" (cacheProperty) will be created automatically
 ```
  
- Note how you only define the referenceProperty "commentIds", where only the foreign-keys ``_id`` will be saved as an array of string (``type: [String]``).
+ Note how you only define the referenceProperty "commentIds", where the foreign-keys ``_id`` will be saved as an array of string (``type: [String]``). This is the property you can write to. An extra cacheProperties called ``commentCache`` will be created for you containing the full comment-instances.
 
   2. In the "Comments"-schema you can now link back to "Posts", like so:
 ```js
@@ -36,7 +75,7 @@ It is always good to know whats inside - so this is how the magic works:
   // from the "comments"-perspective:
   //  Many Comment can be assigned to 1 Post
   //  so lets store the single reference
-  postId: {
+  postId: {  // = referenceProperty
     type: String,
     denormalize: {
       relation: Denormalize.RELATION_MANY_TO_ONE,
@@ -44,15 +83,18 @@ It is always good to know whats inside - so this is how the magic works:
       relatedReference: 'commentIds',
   	}
   },
+  // "postCache" (cacheProperty) will be created automatically
 ```
 
- 3. The package will now do the rest of the work for you:
+The ``postId``-property is the field you can write to. An extra cacheProperties called ``postCache`` will be created for you containing the full comment-instances.
 
-  * it will attach cacheProperties to both schemas, where the instance(s) of the related docs will be denormalized / stored. This way you can still rely on SimpleSchema's validation-logic, p.e. a ``clean()`` will still pass.
+**The package will now do the rest of the work for you:**
+
+  * it will **attach cacheProperties** to both schemas (``Comments.postCache``and ``Posts.commentCache``). *Why do we do this? Because this way you can still rely on SimpleSchema's validation-logic, p.e. a ``clean()`` will still pass.*
   
-  * it will attach hooks to the collections and sync the data.
+  * it will automatically **sync data between both collections** on ``insert``-, ``update``- and ``remove``-commands, by using collection-hooks.
 
- 4. You can write to the referenceProperties (containing the ``_id``) and read from the cacheProperties, p.e. like:
+  3. You can now **write to the referenceProperties** (containing the ``_id``) and **read from the cacheProperties**, p.e. like:
 
 ```js
 	  // write to the referenceProperties, p.e. "Comments.postId"
@@ -77,26 +119,6 @@ It is always good to know whats inside - so this is how the magic works:
       expect(post.commentCache.instances.length).to.equal(1)
       expect(post.commentCache.instances[0].comment).to.equal('comment 1')
 ```
-
-## Table of Contents
-
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-
-
-- [Installation](#installation)
-- [Basic Usage](#basic-usage)
-- [ONE-TO-MANY Relationships](#one-to-many-relationships)
-- [MANY-TO-ONE Relationships](#many-to-one-relationships)
-- [MANY-TO-MANY Relationships.](#many-to-many-relationships)
-- [How to contribute to this package](#how-to-contribute-to-this-package)
-- [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
-- [Background Infos](#background-infos)
-  - [Why denormalize?](#why-denormalize)
-  - [Resources](#resources)
-  - [Other related packages](#other-related-packages)
-
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 ## Installation
 
