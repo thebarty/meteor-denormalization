@@ -12,24 +12,24 @@
 A denormalization-toolkit that handles the complete denormalization process for you. It allows you to specify your denormalization-relations (ONE-TO-MANY, MANY-TO-ONE, MANY-TO-MANY) within your SimpleSchema. It will then automatically denormalize the data between the specified collections and keep it in sync on ``insert``-, ``update``- and ``remove``-commands. It is designed to be **compatible the aldeed:ecosystem** ([SimpleSchema](https://github.com/aldeed/meteor-simple-schema), [Collection2](https://github.com/aldeed/meteor-collection2), [AutoForm](https://github.com/aldeed/meteor-autoform), [Tabular](https://github.com/aldeed/meteor-tabular/)).
 
 
-## Table of Contents
+# Table of Contents
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 
-- [How does this work?](#how-does-this-work)
-  - [Installation](#installation)
-  - [Introduction](#introduction)
-    - [referenceProperties](#referenceproperties)
-    - [cacheProperties](#cacheproperties)
+- [Installation](#installation)
+- [How does it work? An Introduction](#how-does-it-work-an-introduction)
+  - [referenceProperties](#referenceproperties)
+  - [cacheProperties](#cacheproperties)
   - [A first example](#a-first-example)
 - [Basic Usage](#basic-usage)
   - [ONE-TO-MANY Relationships](#one-to-many-relationships)
   - [MANY-TO-ONE Relationships](#many-to-one-relationships)
   - [MANY-TO-MANY Relationships.](#many-to-many-relationships)
-- [How to contribute to this package](#how-to-contribute-to-this-package)
-- [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
+- [Constribute to this project](#constribute-to-this-project)
+  - [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
+  - [How to contribute to this package](#how-to-contribute-to-this-package)
 - [Background Infos](#background-infos)
   - [Why denormalize?](#why-denormalize)
   - [Resources](#resources)
@@ -37,9 +37,7 @@ A denormalization-toolkit that handles the complete denormalization process for 
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-## How does this work?
-
-### Installation
+# Installation
 
 In your Meteor app directory, enter:
 
@@ -47,17 +45,17 @@ In your Meteor app directory, enter:
 $ meteor add thebarty:denormalization
 ```
 
-### Introduction
+# How does it work? An Introduction
 
 With the help of this package your collections will store **writable foreign-keys** (in "referenceProperties") and **read-only instances** (in "cacheProperties").
 
-#### referenceProperties
+## referenceProperties
 You design your SimpleSchema by adding **"referenceProperties"** (p.e. ``Post.commentIds``) and adding the ``denormalize: { .. }``-attribute. By definition a referenceProperties is a **writable** property where foreign-keys (``Mongo._ids``) are stored. In the aldeed:ecosystem you could use AutoForm to assign those references.
 
-#### cacheProperties
+## cacheProperties
 For each "referenceProperty" this package will automatically create a **read-only "cacheProperty"**, where full instances of the related doc will be stored.
 
-### A first example
+## A first example
 
 Within your SimpleSchema you define a "denormalize"-relation, p.e. when defining your "Posts"-schema you can hookup "Comments" within the referenceProperty like so:
 ```js
@@ -127,13 +125,23 @@ You can now **write to the referenceProperties** (containing the ``_id``) and **
       expect(post.commentCache.instances[0].commentText).to.equal('comment 1')
 ```
 
-## Basic Usage
+# Basic Usage
 
-### ONE-TO-MANY Relationships
+## ONE-TO-MANY Relationships
 
-### MANY-TO-ONE Relationships
+## MANY-TO-ONE Relationships
 
-### MANY-TO-MANY Relationships.
+## MANY-TO-MANY Relationships.
+
+# Constribute to this project
+
+I'd love to hear your feedback on this and get you in the boat.
+
+## Open Questions to the experts (for Version 2.0)
+ * How can we improve the code?
+ * How can we make this as stable, fast, scalable and secure as possible?
+ * What (edge) use-cases are we NOT covering yet, but should be?
+ * How about adding transaction support? maybe thru this package https://github.com/JackAdams/meteor-transactions?
 
 ## How to contribute to this package
 Lets make this perfect and collaborate. This is how to set up your local testing environment:
@@ -142,22 +150,16 @@ Lets make this perfect and collaborate. This is how to set up your local testing
  3. run tests from the root (/whatever/.) of your project like ``meteor test-packages ./packages/denormalization/ --driver-package practicalmeteor:mocha``
  4. develop, write tests, and submit a pull request
 
-## Open Questions to the experts (for Version 2.0)
- * How can we improve the code?
- * How can we make this as stable, fast, scalable and secure as possible?
- * What (edge) use-cases are we NOT covering yet, but should be?
- * How about adding transaction support? maybe thru this package https://github.com/JackAdams/meteor-transactions?
+# Background Infos
 
-## Background Infos
-
-### Why denormalize?
+## Why denormalize?
  * When you have a read-heavy app
  * When you want to scale (client-side joints might be hard to scale - see reference)
  * Because this package makes it easy
 
-### Resources
+## Resources
  * https://disqus.com/home/discussion/justmeteor/why-we-dont-denormalize-anymore/newest/ interesting read-up. For me the conclusions are: "denormalization" is an performance optimization technique, meaning: When prototyping it might (!!!) make sense to use joins or use this package to speed things up. "The rule should be, go full relational until performance matters, once it does start de-normalizing." The ambivalent concept is that we are using mongo which is advising us to use denormalization.
 
-### Other related packages
+## Other related packages
 * https://github.com/peerlibrary/meteor-peerdb: great all-in-one solution, but it is NOT compatible with SimpleSchema.
 * https://github.com/jeanfredrik/meteor-denormalize: Good api, but does not support all relations that this package does.
