@@ -480,6 +480,83 @@ if (Meteor.isServer) {
       expect(post2.commentCache.instances[0].comment).to.equal('comment 1')
     })
 
+    it('_ensureArrayProperty works as expected', function () {
+      const obj1Source = {
+      }
+      const obj1Expected = {
+        prop: [],
+      }
+      expect(Denormalize._ensureArrayProperty(obj1Source, 'prop')).to.deep.equal(obj1Expected)
+
+      const obj2Source = {
+        prop: [1,2,3]
+      }
+      const obj2Expected = {
+        prop: [1,2,3]
+      }
+      expect(Denormalize._ensureArrayProperty(obj2Source, 'prop')).to.deep.equal(obj2Expected)
+
+      const obj3Source = {
+        prop: 'String'
+      }
+      expect(() => {
+        Denormalize._ensureArrayProperty(obj3Source, 'prop')
+      }).to.throw()
+
+      const obj4Source = {
+        prop: [1,2,3],
+      }
+      const obj4Expected = {
+        prop: [1,2,3],
+        prop2: [],
+      }
+      expect(Denormalize._ensureArrayProperty(obj4Source, 'prop2')).to.deep.equal(obj4Expected)
+    })
+
+    it('_ensureCacheInstancesProperty works as expected', function () {
+      const obj1Source = {
+      }
+      const obj1Expected = {
+        propCache: {
+          instances: [],
+        },
+      }
+      expect(Denormalize._ensureCacheInstancesProperty({
+        doc: obj1Source,
+        cacheName: 'propCache' })
+      ).to.deep.equal(obj1Expected)
+
+      const obj2Source = {
+        propCache: {
+        },
+      }
+      const obj2Expected = {
+        propCache: {
+          instances: [],
+        },
+      }
+      expect(() => {
+        Denormalize._ensureCacheInstancesProperty({
+        doc: obj2Source,
+        cacheName: 'propCache' })
+      }).to.throw()
+
+      const obj3Source = {
+        propCache: {
+          instances: [1,2],
+        },
+      }
+      const obj3Expected = {
+        propCache: {
+          instances: [1,2],
+        },
+      }
+      expect(Denormalize._ensureCacheInstancesProperty({
+        doc: obj3Source,
+        cacheName: 'propCache' })
+      ).to.deep.equal(obj3Expected)
+    })
+
   })
 }
 

@@ -85,9 +85,12 @@ export const Denormalize = class Denormalize {
   // PUBLIC API (to be used from outside)
 
   /**
-   * Build the denormalized schema, that contains valid
-   *  reference- and cache-property. Our main introduce the cache-property
-   *  to SimpleSchema and allow it to exist.
+   * Build the denormalized schema, that contains a valid
+   *  reference- and cache-property. Our main goal is to introduce
+   *  the cache-propertyto SimpleSchema, which will then allow it to exist.
+   *
+   * This way we can still rely on SimpleSchema's validation logic,
+   *  when updating the document.
    *
    * Background info: For easier testing this is a separate function
    *  and added "autoFormIsActive" parameter, so we can set it from outside.
@@ -144,6 +147,16 @@ export const Denormalize = class Denormalize {
     return returnSchema
   }
 
+  /**
+   * Hook up the defined denormalization-strategy to the collection.
+   *
+   * We are using collection-hooks package here and simply call its functions.
+   * It is possible to attach multiple hooks of the same type to a collection.
+   *
+   * @param  {[type]} collection [description]
+   * @param  {[type]} schema     [description]
+   * @return {[type]}            [description]
+   */
   static hookMeUp(collection, schema) {
     // create insert- update- remove-hooks
     debug(`hookMeUp for collection "${collection._name}"`)
@@ -175,29 +188,26 @@ export const Denormalize = class Denormalize {
             // collection (p.e. comment):
             //  * fill the cacheProperty by loading from related collection
             //  (p.e. load "postCache" by "postId")
-            const docForCache = Denormalize._pickAndOmitFields(relatedCollection.findOne(referenceId), pickAttributes, omitAttributes)
-            const jsonModifier = `{"$set": {"${cacheName}": ${JSON.stringify(docForCache)} } }`
-            const modifier = JSON.parse(jsonModifier)
-            const updates = collection.direct.update(doc._id, modifier)
-            debug(`${updates} docs updated in collection ${collection._name}`)
+            Denormalize._updateCacheInCollection({
+              collection,
+              _id: docId,
+              docForCache: Denormalize._pickAndOmitFields(relatedCollection.findOne(referenceId), pickAttributes, omitAttributes),
+              referenceProperty: key,
+            })
 
             // relatedCollection (p.e. post):
             //  * add comment._id to postIds
             //  * add comment-instance to postCache
-            const cacheNameInRelatedCollection = Denormalize._getCacheNameFromReferenceKey(relatedReference)
-            const docInRelatedCollection = relatedCollection.findOne(referenceId)
-            // .. relatedReference
-            docInRelatedCollection[relatedReference] = docInRelatedCollection[relatedReference] || []
-            docInRelatedCollection[relatedReference].push(docId)
-            // .. cacheNameInRelatedCollection
-            if (!docInRelatedCollection[cacheNameInRelatedCollection]
-              || (docInRelatedCollection[cacheNameInRelatedCollection]
-                && !docInRelatedCollection[cacheNameInRelatedCollection].instances)) {
-              docInRelatedCollection[cacheNameInRelatedCollection] = { instances: [] }
-            }
-            docInRelatedCollection[cacheNameInRelatedCollection].instances.push(doc)
-            const updates2 = relatedCollection.direct.update(docInRelatedCollection._id, { $set: docInRelatedCollection }, {bypassCollection2: true, validate: false, filter: false, autoConvert: false, removeEmptyStrings:false, getAutoValues: false })
-            debug(`${updates2} docs updated in collection ${relatedCollection._name}`)
+            let relatedDoc = relatedCollection.findOne(referenceId)
+            relatedDoc = Denormalize._ensureArrayProperty(relatedDoc, relatedReference)
+            const cacheName = Denormalize._getCacheNameFromReferenceKey(relatedReference)
+            relatedDoc = Denormalize._ensureCacheInstancesProperty({ doc: relatedDoc, cacheName })
+            relatedDoc[relatedReference].push(docId)
+            relatedDoc[cacheName][Denormalize.CACHE_INSTANCE_FIELD].push(doc)
+            Denormalize._updateDocInCollection({
+              doc: relatedDoc,
+              collection: relatedCollection,
+            })
           }
         })
 
@@ -226,7 +236,7 @@ export const Denormalize = class Denormalize {
         //  that belong to our single post.
         //  There are 2 properties for doing so:
         //   1) referenceProperty: posts.commentIds
-        //   2) cacheProperty:     posts.commentCache.instances:
+        //   2) cacheProperty:     posts.commentCache[Denormalize.CACHE_INSTANCE_FIELD]:
 
         // INSERT-HOOK (p.e. "a post is inserted, maybe with comments attached")
         collection.after.insert(function (userId, doc) {
@@ -234,7 +244,7 @@ export const Denormalize = class Denormalize {
           debug(`${collection._name}.after.insert - field ${key} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReference})`)
           //  collection (p.e. posts):
           //   * fill the cacheProperty by loading from related collection
-          //   (p.e. "commentCache.instances" by "commentIds")
+          //   (p.e. "commentCache[Denormalize.CACHE_INSTANCE_FIELD]" by "commentIds")
           // WHY IS THIS RUN twice???
           const docId = this._id
           const referenceIds = doc[key]
@@ -395,10 +405,134 @@ export const Denormalize = class Denormalize {
       }
     }
   }
+
+  /**
+   * Update the cacheProperty for a single document in a collection
+   *  with the doc passed as a parameter.
+   *
+   * @param  {Collection} options.collection
+   * @param  {Object} options.doc The doc that should be put into the cache
+   * @return {Integer} nr of documents updated
+   */
+  static _updateCacheInCollection(options = {}) {
+    new SimpleSchema({
+      _id: { type: String },
+      collection: { type: Mongo.Collection },
+      docForCache: { type: Object, blackbox: true },
+      referenceProperty: { type: String },
+    }).validate(options)
+    const { _id, collection, docForCache, referenceProperty } = options
+    const cacheProperty = Denormalize._getCacheNameFromReferenceKey(referenceProperty)
+
+    const jsonModifier = `{"$set": {"${cacheProperty}": ${JSON.stringify(docForCache)} } }`
+    const modifier = JSON.parse(jsonModifier)
+    const updates = collection.direct.update(_id, modifier)
+    if (updates) {
+      debug(`updated cache "${cacheProperty}" of doc ("${_id}") in collection "${collection._name}"`)
+    } else {
+      throw new Error(`tried to update cache of doc ("${_id}") in collection "${collection._name}", BUT something went wrong - NO documents were updated!`)
+    }
+    return updates
+  }
+
+  /**
+   * Make sure that an object has a specific property
+   *  of type array.
+   *
+   *  If it has NO property, create it.
+   *  If it has an existing-property, which is NO array: throw an error!
+   *
+   * @param  {Object} doc
+   * @param  {String} property
+   * @return {Object}
+   */
+  static _ensureArrayProperty(doc, property) {
+    check(doc, Object)
+    check(property, String)
+
+    const existingProperty = doc[property]
+    // validate that we have an array
+    if (existingProperty && !_.isArray(existingProperty)) {
+      throw new Error(`expected property "${property}" to be an array, BUT it is NOT!`)
+    } else if (!existingProperty) {
+      // create empty array if NOT exists
+      doc[property] = []
+    }
+    debug('_ensureArrayProperty doc', doc)
+    return doc
+  }
+
+  /**
+   * Ensure that an object(document) has a cacheProperty
+   *  of type "{ cacheProperty: { instances: [] } }",
+   *  which is what we story a "*many*"-relationship.
+   *
+   * @param  {Object} options.doc Document
+   * @param  {String} options.cacheName the name cacheProperty
+   * @return {[type]}         [description]
+   */
+  static _ensureCacheInstancesProperty(options = {}) {
+    new SimpleSchema({
+      doc: { type: Object, blackbox: true },
+      cacheName: { type: String },
+    }).validate(options)
+    const { doc, cacheName } = options
+
+    const existingProperty = doc[cacheName]
+    if (!existingProperty) {
+      doc[cacheName] = JSON.parse(`{ "${Denormalize.CACHE_INSTANCE_FIELD}": [] }`)
+    } else {
+      if (!existingProperty[Denormalize.CACHE_INSTANCE_FIELD]) {
+        throw new Error(`expected existing cache to have an "instances"-field, BUT it has NOT - something is wrong here!`)
+      }
+      if (existingProperty[Denormalize.CACHE_INSTANCE_FIELD]
+        && !_.isArray(existingProperty[Denormalize.CACHE_INSTANCE_FIELD])) {
+        throw new Error(`expected existing cache[Denormalize.CACHE_INSTANCE_FIELD] to be type array, BUT it is NOT - something is wrong here!`)
+      }
+    }
+    return doc
+  }
+
+  /**
+   * Stupid helper that updates an doc in a collection,
+   * with feature of doing a DIRECT update, bypassing any collection.hooks
+   * and explicitly bypassing SimpleSchema and Collection2-features.
+   *
+   * We do this in order to make our update "invisible",
+   * p.e. we do NOT want an ``AutoValue`` to change the updatedAt, createdAt property.
+   *
+   * @param  {Mongo.Collection} options.collection
+   * @param  {Document} options.doc
+   */
+  static _updateDocInCollection(options = {}) {
+    new SimpleSchema({
+      collection: { type: Mongo.Collection },
+      doc: { type: Object, blackbox: true },
+    }).validate(options)
+
+    const { collection, doc } = options
+
+    console.log('_updateDocInCollection doc')
+    console.log(doc)
+    const updates = collection.direct.update(doc._id, { $set: doc }, {
+      bypassCollection2: true,
+      validate: false,
+      filter: false,
+      autoConvert: false,
+      removeEmptyStrings:false,
+      getAutoValues: false
+    })
+    if (updates) {
+      debug(`updated doc ("${doc._id}") in collection "${collection._name}"`)
+    } else {
+      throw new Error(`tried to update doc with id ("${doc._id}") in collection "${collection._name}", BUT it does NOT exist! Something is wrong!`)
+    }
+  }
 }
 Denormalize.RELATION_ONE_TO_MANY  = 'RELATION_ONE_TO_MANY'
 Denormalize.RELATION_MANY_TO_ONE  = 'RELATION_MANY_TO_ONE'
 Denormalize.RELATION_MANY_TO_MANY = 'RELATION_MANY_TO_MANY'
 Denormalize.MODE_FLAT             = 'MODE_FLAT'
 Denormalize.MODE_EMBEDDED         = 'MODE_EMBEDDED'
+Denormalize.CACHE_INSTANCE_FIELD  = 'instances'
 Denormalize.Debug                 = false
