@@ -12,7 +12,7 @@
 
 *thebarty:denormalization*
 
-This package makes denormalization easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "One-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box.
+This package makes denormalization easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "one-to-one"-, "one-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box.
 
 The package will then automatically denormalize the data between the specified collections and keep them in sync on ``insert``-, ``update``- and ``remove``-commands. 
 
@@ -31,6 +31,7 @@ It is designed to be **compatible the aldeed:ecosystem** ([SimpleSchema](https:/
   - [cacheProperties](#cacheproperties)
   - [A first example](#a-first-example)
 - [Basic Usage](#basic-usage)
+  - [ONE-TO-ONE Relationships](#one-to-many-relationships)
   - [ONE-TO-MANY Relationships](#one-to-many-relationships)
   - [MANY-TO-ONE Relationships](#many-to-one-relationships)
   - [MANY-TO-MANY Relationships.](#many-to-many-relationships)
@@ -137,13 +138,15 @@ You can now **write to the referenceProperties** (containing the ``_id``) and **
 
 # Supported Relationships
 
+## ONE-TO-ONE relationships
+
 ## ONE-TO-MANY relationships
 
 ## MANY-TO-ONE relationships
 
 ## MANY-TO-MANY relationships
 
-## Check out the .test-files for more examples
+## More examples? Check out the .test-files
 
 
 # Constribute to this project

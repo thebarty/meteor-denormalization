@@ -212,9 +212,8 @@ if (Meteor.isServer) {
       expect(Denormalize._getModeForKey('posts.$.postIds')).to.equal(Denormalize.MODE_EMBEDDED)
     })
 
-    /*
-    it('generateSimpleSchema-function works as expected', function () {
-      // TEST: simple schema WITHOUG overwrite
+    it('generateSimpleSchema-function will define correct defaults', function () {
+      // TEST: simple schema WITHOUT overwrite
       const schema = Denormalize.generateSimpleSchema(
         {
           postId: {
@@ -222,7 +221,8 @@ if (Meteor.isServer) {
             optional: true,
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
-              relatedCollection: new Object(),
+              relatedCollection: CommentsSimple,
+              relatedReference: 'postId',
               pickAttributes: ['post'],
               extendCacheFieldBy: {
                 label: 'Posts Instance',
@@ -237,12 +237,11 @@ if (Meteor.isServer) {
       )
       expect(schema).to.be.defined
       expect(schema.postId.type).to.equal(String)
-      expect(schema.postInstance.autoValue).to.be.defined
-      expect(schema.postInstance.label).to.equal('Posts Instance')
-      expect(schema.postInstance.autoform.type).to.equal('select-checkbox')
-      expect(schema.postInstance.autoform.omit).to.equal(true)
+      expect(schema.postCache.label).to.equal('Posts Instance')
+      expect(schema.postCache.autoform.type).to.equal('select-checkbox')
+      expect(schema.postCache.autoform.omit).to.equal(true)
 
-      // TEST: schema WITH OVERWRITE of "autoform.omit"
+      // TEST: schema WITH OVERWRITE in "autoform.omit"
       const schema2 = Denormalize.generateSimpleSchema(
         {
           postId: {
@@ -250,7 +249,8 @@ if (Meteor.isServer) {
             optional: true,
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
-              relatedCollection: new Object(),
+              relatedCollection: CommentsSimple,
+              relatedReference: 'postId',
               pickAttributes: ['post'],
               extendCacheFieldBy: {
                 label: 'Posts Instance',
@@ -266,12 +266,66 @@ if (Meteor.isServer) {
       )
       expect(schema2).to.be.defined
       expect(schema2.postId.type).to.equal(String)
-      expect(schema2.postInstance.autoValue).to.be.defined
-      expect(schema2.postInstance.label).to.equal('Posts Instance')
-      expect(schema2.postInstance.autoform.type).to.equal('select-checkbox')
-      expect(schema2.postInstance.autoform.omit).to.equal('overwrite standard')
+      expect(schema2.postCache.label).to.equal('Posts Instance')
+      expect(schema2.postCache.autoform.type).to.equal('select-checkbox')
+      expect(schema2.postCache.autoform.omit).to.equal('overwrite standard')
+
+      // TEST: simple schema type [String]
+      const schema3 = Denormalize.generateSimpleSchema(
+        {
+          postId: {
+            // type: String, // should be [String]
+            optional: true,
+            denormalize: {
+              relation: Denormalize.RELATION_ONE_TO_MANY,
+              relatedCollection: PostsSimple,
+              relatedReference: 'authorId',
+              pickAttributes: ['post'],
+              extendCacheFieldBy: {
+                label: 'Author denormalized Instance',
+              },
+            },
+          },
+        },
+        false  // AUTOFORM_IS_ACTIVE
+      )
+      expect(schema3).to.be.defined
+      expect(schema3.postId.type).to.deep.equal([String])
+      expect(schema3.postCache.label).to.equal('Author denormalized Instance')
+      expect(schema3.postCache.autoform).to.be.undefined
     })
-    */
+
+    it('_validateDenormalizedSettings-function will work as expected', function () {
+      const schema = {
+        postId: {
+          type: String,
+          optional: true,
+          denormalize: {
+            relation: Denormalize.RELATION_MANY_TO_ONE,
+            relatedCollection: CommentsSimple,
+            relatedReference: 'postIdssss',
+          },
+        },
+      }
+      expect(() => {
+        Denormalize._validateDenormalizedSettings(schema, 'postId')
+      }).to.throw()
+
+      const schema2 = {
+        postId: {
+          type: String,
+          optional: true,
+          denormalize: {
+            relation: Denormalize.RELATION_MANY_TO_ONE,
+            relatedCollection: CommentsSimple,
+            relatedReference: 'postId',
+          },
+        },
+      }
+      expect(() => {
+        Denormalize._validateDenormalizedSettings(schema2, 'postId')
+      }).to.not.throw()
+    })
 
     it('Example 1 - Szenario 1 works', function () {
       // Init

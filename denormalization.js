@@ -50,8 +50,8 @@ function extend (target) {
 }
 
 /**
- * Attach helper
- * @param  {[type]} ss      [description]
+ * Attach helper to standard
+ * @param  {[type]} schema  [description]
  * @param  {[type]} options [description]
  * @return {[type]}         [description]
  */
@@ -81,64 +81,67 @@ Mongo.Collection.prototype.attachDenormalizedSchema = function attachDenormalize
 // DENORMALIZE CLASS
 // ===========================================================
 export const Denormalize = class Denormalize {
-  static _findDenormalizedKeysInSchema(schema) {
-    const returnKeys = []
-    // find properties with "denormalize"-settings
-    for (const key of _.keys(schema)) {
-      // is the property called according our conventions?
-      if (s.endsWith(key, 'Id') || s.endsWith(key, 'Ids')) {
-        // does this property have a "denormalize"-setting?
-        if (schema[key]['denormalize']) {
-          returnKeys.push(key)
+  // ================================================
+  // PUBLIC API (to be used from outside)
+
+  /**
+   * Build the denormalized schema, that contains valid
+   *  reference- and cache-property. Our main introduce the cache-property
+   *  to SimpleSchema and allow it to exist.
+   *
+   * Background info: For easier testing this is a separate function
+   *  and added "autoFormIsActive" parameter, so we can set it from outside.
+   *
+   * @return {Object} Schema-Definition as pure JS-Object
+   */
+  static generateSimpleSchema(schema, autoFormIsActive) {
+    let returnSchema = schema
+
+    // Loop thru schema, validate "denormalized" and extend the schema with
+    //  an valid reference and cache field
+    const denormalizedKeys = Denormalize._findDenormalizedKeysInSchema(schema)
+    for (const key of denormalizedKeys) {
+      debug(`processing denormalized key "${key}" `)
+
+      const mode = Denormalize._getModeForKey(key)
+      Denormalize._validateDenormalizedSettings(schema, key)
+      const { relation, relatedCollection, pickAttributes, extendCacheFieldBy } = schema[key]['denormalize']
+
+      const cacheName = Denormalize._getCacheNameFromReferenceKey(key)
+
+      // add settings to reference-property
+      if (relation===Denormalize.RELATION_MANY_TO_ONE) {
+        schema[key]['type'] = String
+      } else if (relation===Denormalize.RELATION_ONE_TO_MANY) {
+        schema[key]['type'] = [String]
+      }
+
+      // Build the CACHE-PROPERTY
+      const cacheProperty = {}
+      // settings that CAN be overwritten by "extendCacheFieldBy"
+      // hide from autoform (if installed)
+      if (autoFormIsActive) {
+        cacheProperty.autoform = {
+          omit: true,
         }
       }
-    }
-    return _.uniq(returnKeys)
-  }
-
-  static _getModeForKey(key) {
-    if (s.contains(key, '$')) {
-      return Denormalize.MODE_EMBEDDED
-    } else {
-      return Denormalize.MODE_FLAT
-    }
-  }
-
-  static _getCacheNameFromReferenceKey(key) {
-    return `${s.strLeft(key, 'Id')}Cache`
-  }
-
-  static _validateDenormalizedSettings(schema, key) {
-    const settings = schema[key]['denormalize'] || {}
-    // base-validation
-    new SimpleSchema({
-      relation: { type: String, allowedValues: [
-        Denormalize.RELATION_MANY_TO_ONE,
-        Denormalize.RELATION_ONE_TO_MANY,
-        // other relations NOT YET supported
-      ] },
-      relatedCollection: { type: Mongo.Collection },
-      relatedReference: { type: String, optional: true },
-      pickAttributes: { type: [String], optional: true },
-      omitAttributes: { type: [String], optional: true },
-      extendCacheFieldBy: { type: Object, optional: true, blackbox: true, }
-    }).validate(settings)
-    debug('settings', settings)
-
-    // more detailed validation
-    if (settings.relation===Denormalize.RELATION_MANY_TO_ONE) {
-      // "relatedReference" is mandatory
-      if (!Match.test(settings.relatedReference, String)) {
-        throw new Error(`you need to define "relatedReference" when using a "RELATION_MANY_TO_ONE"-relation for property "${key}"`)
+      // extendCacheFieldBy are simply attached to the root of the new field
+      if (extendCacheFieldBy) {
+        // we do NOT want to let extendCacheFieldBy overwrite
+        //  nested properties, p.e. "autoform.omit" when the nested property itself
+        //  (p.e. "omit") is NOT set in "extendCacheFieldBy. Still we want to give extendCacheFieldBy priority.
+        extend(cacheProperty, extendCacheFieldBy)
       }
-      // "relatedReference"-field needs to exist in schema of relatedCollection
-      //  simpleSchema is NOT available during instanciation of the collections
-      if (settings.relatedCollection.simpleSchema()
-          && !_.contains(settings.relatedCollection.simpleSchema()._schemaKeys, settings.relatedReference)) {
-        throw new Error(`within key "${key}" you are referencing relatedReference to "${settings.relatedCollection._name}.${settings.relatedReference}", BUT this property does NOT exist in collection "${settings.relatedCollection._name}"`)
-      }
-
+      // settings that CAN NOT be overwritten by "extendCacheFieldBy"
+      cacheProperty.type = Object
+      cacheProperty.optional = true
+      cacheProperty.blackbox = true
+      // attach instancefield to schema
+      returnSchema[cacheName] = cacheProperty
+      debug(`denormalized data for id-field "${key}" will be available in "${relatedCollection._name}.${cacheName}" `)
     }
+    debug('generated denormalized SimpleSchema:', returnSchema)
+    return returnSchema
   }
 
   static hookMeUp(collection, schema) {
@@ -318,66 +321,8 @@ export const Denormalize = class Denormalize {
     }
   }
 
-  /**
-   * Build the denormalized schema, that contains valid
-   *  reference- and cache-property. Our main introduce the cache-property
-   *  to SimpleSchema and allow it to exist.
-   *
-   * Background info: For easier testing this is a separate function
-   *  and added "autoFormIsActive" parameter, so we can set it from outside.
-   *
-   * @return {Object} Schema-Definition as pure JS-Object
-   */
-  static generateSimpleSchema(schema, autoFormIsActive) {
-    let returnSchema = schema
-
-    // Loop thru schema, validate "denormalized" and extend the schema with
-    //  an valid reference and cache field
-    const denormalizedKeys = Denormalize._findDenormalizedKeysInSchema(schema)
-    for (const key of denormalizedKeys) {
-      debug(`processing denormalized key "${key}" `)
-
-      const mode = Denormalize._getModeForKey(key)
-      Denormalize._validateDenormalizedSettings(schema, key)
-      const { relation, relatedCollection, pickAttributes, extendCacheFieldBy } = schema[key]['denormalize']
-
-      const cacheName = Denormalize._getCacheNameFromReferenceKey(key)
-
-      // add settings to reference-property
-      if (relation===Denormalize.RELATION_MANY_TO_ONE) {
-        schema[key]['type'] = String
-      } else if (relation===Denormalize.RELATION_ONE_TO_MANY) {
-        schema[key]['type'] = [String]
-      }
-
-      // Build the CACHE-PROPERTY
-      const cacheProperty = {}
-      // settings that CAN be overwritten by "extendCacheFieldBy"
-      // hide from autoform (if installed)
-      if (autoFormIsActive) {
-        cacheProperty.autoform = {
-          omit: true,
-        }
-      }
-      // extendCacheFieldBy are simply attached to the root of the new field
-      if (extendCacheFieldBy) {
-        // we do NOT want to let extendCacheFieldBy overwrite
-        //  nested properties, p.e. "autoform.omit" when the nested property itself
-        //  (p.e. "omit") is NOT set in "extendCacheFieldBy. Still we want to give extendCacheFieldBy priority.
-        extend(cacheProperty, extendCacheFieldBy)
-      }
-      // settings that CAN NOT be overwritten by "extendCacheFieldBy"
-      cacheProperty.type = Object
-      cacheProperty.optional = true
-      cacheProperty.blackbox = true
-      // attach instancefield to schema
-      returnSchema[cacheName] = cacheProperty
-      debug(`denormalized data for id-field "${key}" will be available in "${relatedCollection._name}.${cacheName}" `)
-    }
-    debug('generated denormalized SimpleSchema:', returnSchema)
-    return returnSchema
-  }
-
+  // ================================================
+  // PRIVATE HELPER (not to be used from outside)
   static _pickAndOmitFields(doc, pickAttributes, omitAttributes) {
     check(doc, Object)
     check(pickAttributes, Match.Maybe([String]))
@@ -390,6 +335,65 @@ export const Denormalize = class Denormalize {
       returnDoc = _.omit(returnDoc, omitAttributes)
     }
     return returnDoc
+  }
+
+  static _findDenormalizedKeysInSchema(schema) {
+    const returnKeys = []
+    // find properties with "denormalize"-settings
+    for (const key of _.keys(schema)) {
+      // is the property called according our conventions?
+      if (s.endsWith(key, 'Id') || s.endsWith(key, 'Ids')) {
+        // does this property have a "denormalize"-setting?
+        if (schema[key]['denormalize']) {
+          returnKeys.push(key)
+        }
+      }
+    }
+    return _.uniq(returnKeys)
+  }
+
+  static _getModeForKey(key) {
+    if (s.contains(key, '$')) {
+      return Denormalize.MODE_EMBEDDED
+    } else {
+      return Denormalize.MODE_FLAT
+    }
+  }
+
+  static _getCacheNameFromReferenceKey(key) {
+    return `${s.strLeft(key, 'Id')}Cache`
+  }
+
+  static _validateDenormalizedSettings(schema, key) {
+    const settings = schema[key]['denormalize'] || {}
+    // base-validation
+    new SimpleSchema({
+      relation: { type: String, allowedValues: [
+        Denormalize.RELATION_MANY_TO_ONE,
+        Denormalize.RELATION_ONE_TO_MANY,
+        // other relations NOT YET supported
+      ] },
+      relatedCollection: { type: Mongo.Collection },
+      relatedReference: { type: String, optional: true },
+      pickAttributes: { type: [String], optional: true },
+      omitAttributes: { type: [String], optional: true },
+      extendCacheFieldBy: { type: Object, optional: true, blackbox: true, }
+    }).validate(settings)
+    debug('settings', settings)
+
+    // more detailed validation
+    if (settings.relation===Denormalize.RELATION_MANY_TO_ONE) {
+      // "relatedReference" is mandatory
+      if (!Match.test(settings.relatedReference, String)) {
+        throw new Error(`you need to define "relatedReference" when using a "RELATION_MANY_TO_ONE"-relation for property "${key}"`)
+      }
+      // "relatedReference"-field needs to exist in schema of relatedCollection
+      //  simpleSchema is NOT available during instanciation of the collections
+      if (settings.relatedCollection.simpleSchema()
+          && !_.contains(settings.relatedCollection.simpleSchema()._schemaKeys, settings.relatedReference)) {
+        throw new Error(`within key "${key}" you are referencing relatedReference to "${settings.relatedCollection._name}.${settings.relatedReference}", BUT this property does NOT exist in collection "${settings.relatedCollection._name}"`)
+      }
+    }
   }
 }
 Denormalize.RELATION_ONE_TO_MANY  = 'RELATION_ONE_TO_MANY'
