@@ -7,9 +7,16 @@
 **WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
 **WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
 
-# Meteor Collection2 Denormalization-Toolkit
 
-A denormalization-toolkit that handles the complete denormalization process for you. It allows you to specify your denormalization-relations (ONE-TO-MANY, MANY-TO-ONE, MANY-TO-MANY) within your SimpleSchema. It will then automatically denormalize the data between the specified collections and keep it in sync on ``insert``-, ``update``- and ``remove``-commands. It is designed to be **compatible the aldeed:ecosystem** ([SimpleSchema](https://github.com/aldeed/meteor-simple-schema), [Collection2](https://github.com/aldeed/meteor-collection2), [AutoForm](https://github.com/aldeed/meteor-autoform), [Tabular](https://github.com/aldeed/meteor-tabular/)).
+# Meteor Collection2 Denormalization
+
+*thebarty:denormalization*
+
+This package makes denormalization easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "One-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box.
+
+The package will then automatically denormalize the data between the specified collections and keep them in sync on ``insert``-, ``update``- and ``remove``-commands. 
+
+It is designed to be **compatible the aldeed:ecosystem** ([SimpleSchema](https://github.com/aldeed/meteor-simple-schema), [Collection2](https://github.com/aldeed/meteor-collection2), [AutoForm](https://github.com/aldeed/meteor-autoform), [Tabular](https://github.com/aldeed/meteor-tabular/)).
 
 
 # Table of Contents
@@ -37,6 +44,7 @@ A denormalization-toolkit that handles the complete denormalization process for 
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
+
 # Installation
 
 In your Meteor app directory, enter:
@@ -45,14 +53,15 @@ In your Meteor app directory, enter:
 $ meteor add thebarty:denormalization
 ```
 
+
 # How does it work? An Introduction
 
 With the help of this package your collections will store **writable foreign-keys** (in "referenceProperties") and **read-only instances** (in "cacheProperties").
 
-## referenceProperties
+## "referenceProperties": writable foreign-key stores
 You design your SimpleSchema by adding **"referenceProperties"** (p.e. ``Post.commentIds``) and adding the ``denormalize: { .. }``-attribute. By definition a referenceProperties is a **writable** property where foreign-keys (``Mongo._ids``) are stored. In the aldeed:ecosystem you could use AutoForm to assign those references.
 
-## cacheProperties
+## "cacheProperties": read-only full-instance stores
 For each "referenceProperty" this package will automatically create a **read-only "cacheProperty"**, where full instances of the related doc will be stored.
 
 ## A first example
@@ -78,7 +87,7 @@ In the "Comments"-schema you can now link back to "Posts":
 ```js
   // "Comment"-schema definition
   // from the "comments"-perspective:
-  //  Many Comment can be assigned to 1 Post
+  //  Many Comments can be assigned to 1 Post
   //  so lets store the single reference
   postId: {  // = referenceProperty
     type: String,
@@ -125,13 +134,17 @@ You can now **write to the referenceProperties** (containing the ``_id``) and **
       expect(post.commentCache.instances[0].commentText).to.equal('comment 1')
 ```
 
-# Basic Usage
 
-## ONE-TO-MANY Relationships
+# Supported Relationships
 
-## MANY-TO-ONE Relationships
+## ONE-TO-MANY relationships
 
-## MANY-TO-MANY Relationships.
+## MANY-TO-ONE relationships
+
+## MANY-TO-MANY relationships
+
+## Check out the .test-files for more examples
+
 
 # Constribute to this project
 
@@ -149,6 +162,7 @@ Lets make this perfect and collaborate. This is how to set up your local testing
  2. copy this package into the packages dir, p.e. "./whatever/packages/denormalization"
  3. run tests from the root (/whatever/.) of your project like ``meteor test-packages ./packages/denormalization/ --driver-package practicalmeteor:mocha``
  4. develop, write tests, and submit a pull request
+
 
 # Background Infos
 

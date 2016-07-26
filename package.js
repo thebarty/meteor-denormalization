@@ -2,9 +2,9 @@ Package.describe({
   name: 'thebarty:denormalization',
   version: '0.0.1',
   // Brief, one-line summary of the package.
-  summary: '',
+  summary: 'This package makes denormalization easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "One-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box.',
   // URL to the Git repository containing the source code for this package.
-  git: '',
+  git: 'https://github.com/thebarty/meteor-denormalization',
   // By default, Meteor will default to using README.md for documentation.
   // To avoid submitting documentation, set this field to null.
   documentation: 'README.md'
@@ -13,7 +13,6 @@ Package.describe({
 Npm.depends({
   'underscore': '1.8.3',
   'underscore.string': '3.3.4',
-  'validate-options': '0.3.0',
 })
 
 Package.onUse(function(api) {
