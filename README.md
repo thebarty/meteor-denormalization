@@ -19,40 +19,47 @@ A denormalization-toolkit that handles the complete denormalization process for 
 
 
 - [How does this work?](#how-does-this-work)
-  - [Introduction: "referenceProperties" and "cacheProperties"](#introduction-referenceproperties-and-cacheproperties)
+  - [Installation](#installation)
+  - [Introduction](#introduction)
     - [referenceProperties](#referenceproperties)
     - [cacheProperties](#cacheproperties)
   - [A first example](#a-first-example)
-  - [Installation](#installation)
-  - [Basic Usage](#basic-usage)
+- [Basic Usage](#basic-usage)
   - [ONE-TO-MANY Relationships](#one-to-many-relationships)
   - [MANY-TO-ONE Relationships](#many-to-one-relationships)
   - [MANY-TO-MANY Relationships.](#many-to-many-relationships)
-  - [How to contribute to this package](#how-to-contribute-to-this-package)
-  - [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
-  - [Background Infos](#background-infos)
-    - [Why denormalize?](#why-denormalize)
-    - [Resources](#resources)
-    - [Other related packages](#other-related-packages)
+- [How to contribute to this package](#how-to-contribute-to-this-package)
+- [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
+- [Background Infos](#background-infos)
+  - [Why denormalize?](#why-denormalize)
+  - [Resources](#resources)
+  - [Other related packages](#other-related-packages)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-# How does this work?
+## How does this work?
 
-## Introduction: "referenceProperties" and "cacheProperties"
+### Installation
+
+In your Meteor app directory, enter:
+
+```
+$ meteor add thebarty:denormalization
+```
+
+### Introduction
 
 With the help of this package your collections will store **writable foreign-keys** (in "referenceProperties") and **read-only instances** (in "cacheProperties").
 
-### referenceProperties
-You design your SimpleSchema by adding **"referenceProperties"** (p.e. ``Post.commentIds``) and adding the ``denormalize: { .. }``-attribute. By definition a referenceProperties is a property where foreign-keys (``Mongo._ids``) are stored. A referenceProperties is **writable**. P.e. you can use AutoForm to assign references.
+#### referenceProperties
+You design your SimpleSchema by adding **"referenceProperties"** (p.e. ``Post.commentIds``) and adding the ``denormalize: { .. }``-attribute. By definition a referenceProperties is a **writable** property where foreign-keys (``Mongo._ids``) are stored. In the aldeed:ecosystem you could use AutoForm to assign those references.
 
-### cacheProperties
-For each "referenceProperty" this package will automatically create a **"cacheProperty"**, where full instances of the related doc will be stored. A cacheProperties is **read-only**.
+#### cacheProperties
+For each "referenceProperty" this package will automatically create a **read-only "cacheProperty"**, where full instances of the related doc will be stored.
 
-## A first example
+### A first example
 
-**In more details it works like this:**
- 1. Within your SimpleSchema you'll define a relation, p.e. when defining your "Posts"-schema you can hookup "Comments" within the referenceProperty like so:
+Within your SimpleSchema you define a "denormalize"-relation, p.e. when defining your "Posts"-schema you can hookup "Comments" within the referenceProperty like so:
 ```js
   // "Posts"-schema definition
   // 1 Post can have Many comments
@@ -67,9 +74,9 @@ For each "referenceProperty" this package will automatically create a **"cachePr
   // "commentCache" (cacheProperty) will be created automatically
 ```
  
- Note how you only define the referenceProperty "commentIds", where the foreign-keys ``_id`` will be saved as an array of string (``type: [String]``). This is the property you can write to. An extra cacheProperties called ``commentCache`` will be created for you containing the full comment-instances.
+Note how you only define the referenceProperty "Posts.commentIds", where the foreign-keys ``_id`` will be saved as an array of strings (``type: [String]``). This is the property you can write to. An extra cacheProperties called ``commentCache`` will be created containing the full comment-instances.
 
-  2. In the "Comments"-schema you can now link back to "Posts", like so:
+In the "Comments"-schema you can now link back to "Posts":
 ```js
   // "Comment"-schema definition
   // from the "comments"-perspective:
@@ -86,7 +93,7 @@ For each "referenceProperty" this package will automatically create a **"cachePr
   // "postCache" (cacheProperty) will be created automatically
 ```
 
-The ``postId``-property is the field you can write to. An extra cacheProperties called ``postCache`` will be created for you containing the full comment-instances.
+The ``Comments.postId``-property is the field you can write to. An extra cacheProperties called ``Comments.postCache`` will be created for you containing the full comment-instances.
 
 **The package will now do the rest of the work for you:**
 
@@ -94,16 +101,16 @@ The ``postId``-property is the field you can write to. An extra cacheProperties 
   
   * it will automatically **sync data between both collections** on ``insert``-, ``update``- and ``remove``-commands, by using collection-hooks.
 
-  3. You can now **write to the referenceProperties** (containing the ``_id``) and **read from the cacheProperties**, p.e. like:
+You can now **write to the referenceProperties** (containing the ``_id``) and **read from the cacheProperties**, p.e. like:
 
 ```js
 	  // write to the referenceProperties, p.e. "Comments.postId"
       const postId = Posts.insert({
         authorId,
-        post: 'post 1',
+        postText: 'post 1',
       })
       const commentId = Comments.insert({
-        comment: 'comment 1',
+        commentText: 'comment 1',
         postId: postId,
       })
 
@@ -112,29 +119,21 @@ The ``postId``-property is the field you can write to. An extra cacheProperties 
 
       // comments
       expect(comment.postId).to.equal(postId)
-      expect(comment.postCache.post).to.equal('post 1')
+      expect(comment.postCache.postText).to.equal('post 1')
 
       // posts
       expect(post.commentIds).to.deep.equal([commentId])
       expect(post.commentCache.instances.length).to.equal(1)
-      expect(post.commentCache.instances[0].comment).to.equal('comment 1')
-```
-
-## Installation
-
-In your Meteor app directory, enter:
-
-```
-$ meteor add thebarty:denormalization
+      expect(post.commentCache.instances[0].commentText).to.equal('comment 1')
 ```
 
 ## Basic Usage
 
-## ONE-TO-MANY Relationships
+### ONE-TO-MANY Relationships
 
-## MANY-TO-ONE Relationships
+### MANY-TO-ONE Relationships
 
-## MANY-TO-MANY Relationships.
+### MANY-TO-MANY Relationships.
 
 ## How to contribute to this package
 Lets make this perfect and collaborate. This is how to set up your local testing environment:
