@@ -92,35 +92,6 @@ AuthorsSimple.attachDenormalizedSchema([
   UpdateCreatedSchema
 ])
 
-AuthorsSimple.attachDenormalizedSchema([
-  // MERGE 2 Schemas is supported
-  {
-    name: {
-      type: String,
-    },
-    // RELATIONSHIPN: "Foreign-Key" (ONE_TO_MANY reference field)
-    // .. from Author-perspectve
-    //    1 Author can have Many comments
-    postIds: {
-      // WRITABLE field
-      type: [String],
-      optional: true,
-      denormalize: {
-        relation: Denormalize.RELATION_ONE_TO_MANY,
-        relatedCollection: PostsSimple,
-        relatedReference: 'authorId',
-        pickAttributes: ['post'],
-        extendCacheFieldBy: {
-          label: 'Author denormalized Instance',
-        }
-      },
-    },
-    // NOTE:
-    // "postInstance"-property will be generated
-  },
-  UpdateCreatedSchema
-])
-
 CommentsSimple.attachDenormalizedSchema({
   comment: {
     type: String,
@@ -198,7 +169,7 @@ if (Meteor.isServer) {
       expect(Denormalize).to.be.defined
     })
 
-    xit('CollectionHooks-package allows us to instanciate multiple hook-functions. All hooks defined hook-functions will be run.', function () {
+    it('CollectionHooks-package allows us to instanciate multiple hook-functions. All hooks defined hook-functions will be run.', function () {
       const aSchema = new SimpleSchema({
         test: {
           type: String,
@@ -231,12 +202,12 @@ if (Meteor.isServer) {
       expect(doc.insertHook2).to.equal('insertHook2 was here')
     })
 
-    xit('_getCacheNameFromReferenceKey() works as expeced', function () {
+    it('_getCacheNameFromReferenceKey() works as expeced', function () {
       expect(Denormalize._getCacheNameFromReferenceKey('postIds')).to.equal('postCache')
       expect(Denormalize._getCacheNameFromReferenceKey('posts.$.postIds')).to.equal('posts.$.postCache')
     })
 
-    xit('_getModeForKey() works as expeced', function () {
+    it('_getModeForKey() works as expeced', function () {
       expect(Denormalize._getModeForKey('postIds')).to.equal(Denormalize.MODE_FLAT)
       expect(Denormalize._getModeForKey('posts.$.postIds')).to.equal(Denormalize.MODE_EMBEDDED)
     })
@@ -302,7 +273,7 @@ if (Meteor.isServer) {
     })
     */
 
-    xit('Example 1 - Szenario 1 works', function () {
+    it('Example 1 - Szenario 1 works', function () {
       // Init
       AuthorsSimple.remove({})
       CommentsSimple.remove({})
@@ -389,6 +360,70 @@ if (Meteor.isServer) {
       expect(post.commentIds).to.deep.equal([commentId])
       expect(post.commentCache.instances.length).to.equal(1)
       expect(post.commentCache.instances[0].comment).to.equal('comment 1')
+    })
+
+    xit('Example 1 - Szenario 3 works ', function () {
+      // Init
+      AuthorsSimple.remove({})
+      CommentsSimple.remove({})
+      PostsSimple.remove({})
+
+      // Scenario
+      // 1) insert a comment
+      // 2) insert a author
+      // 3) insert a post
+      const commentId = CommentsSimple.insert({
+        comment: 'comment 1',
+      })
+      const authorId = AuthorsSimple.insert({
+        name: 'author1',
+      })
+      const postId = PostsSimple.insert({
+        authorId,
+        post: 'post 1',
+        commentIds: [
+          commentId,
+        ]
+      })
+      // this is exacly the scenario 2.
+      //  what if we now create a second post2
+      //  and assign the same comment (that belongs to post1) to it?
+      const postId2 = PostsSimple.insert({
+        authorId,
+        post: 'post 2',
+        commentIds: [
+          commentId,
+        ]
+      })
+
+      // Test: did it work?
+      const author = AuthorsSimple.findOne(authorId)
+      const post = PostsSimple.findOne(postId)
+      const post2 = PostsSimple.findOne(postId2)
+      const comment = CommentsSimple.findOne(commentId)
+
+      // authors
+      expect(author.postIds).to.deep.equal([postId])
+      expect(author.postCache.instances.length).to.equal(1)
+      expect(author.postCache.instances[0].post).to.equal('post 2')
+
+      // comments
+      expect(comment.postId).to.equal(postId2)
+      expect(comment.postCache.post).to.equal('post 2')
+
+      // posts
+      // expect comment to be removed!!!
+      expect(post.authorId).to.equal(authorId)
+      expect(post.authorCache.name).to.equal('author1')
+      expect(post.commentIds).to.deep.equal([])
+      expect(post.commentCache.instances.length).to.equal(0)
+
+      // expect comment to be added!!!
+      expect(post2.authorId).to.equal(authorId)
+      expect(post2.authorCache.name).to.equal('author1')
+      expect(post2.commentIds).to.deep.equal([commentId])
+      expect(post2.commentCache.instances.length).to.equal(1)
+      expect(post2.commentCache.instances[0].comment).to.equal('comment 1')
     })
 
   })

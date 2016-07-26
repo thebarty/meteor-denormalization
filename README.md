@@ -8,7 +8,7 @@
 **WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
 
 
-# Meteor Collection2 Denormalization
+# Meteor Denormalization for SimpleSchema & Collection2
 
 *thebarty:denormalization*
 
@@ -166,13 +166,18 @@ Lets make this perfect and collaborate. This is how to set up your local testing
 
 # Background Infos
 
-## Why denormalize?
- * When you have a read-heavy app
- * When you want to scale (client-side joints might be hard to scale - see reference)
+## Why denormalize? Upsides
+ 
+ Denormalization makes sense in read-heavy apps.
+
+**Why to denormalize? Advantages**
+ * You can avoid complex joins. Simply fetch the document and you're done. (*see resource [1]*)
+ * It reduces the load on the database and the lookup time for your data (*see resource [1]*)
+ * It makes your app scalable (client-side joints might be hard to scale (*see resource [2]*)
  * Because this package makes it easy
 
 ## Resources
- * https://disqus.com/home/discussion/justmeteor/why-we-dont-denormalize-anymore/newest/ interesting read-up. For me the conclusions are: "denormalization" is an performance optimization technique, meaning: When prototyping it might (!!!) make sense to use joins or use this package to speed things up. "The rule should be, go full relational until performance matters, once it does start de-normalizing." The ambivalent concept is that we are using mongo which is advising us to use denormalization.
+ * [1] http://justmeteor.com/blog/why-we-dont-denormalize-anymore/ interesting read-up. For me the conclusions are: "denormalization" is an performance optimization technique, meaning: When prototyping it might (!!!) make sense to use joins or use this package to speed things up. "The rule should be, go full relational until performance matters, once it does start de-normalizing." The ambivalent concept is that we are using mongo which is advising us to use denormalization.
 
 ## Other related packages
 * https://github.com/peerlibrary/meteor-peerdb: great all-in-one solution, but it is NOT compatible with SimpleSchema.

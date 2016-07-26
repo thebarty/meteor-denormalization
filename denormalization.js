@@ -65,11 +65,14 @@ Mongo.Collection.prototype.attachDenormalizedSchema = function attachDenormalize
   //  build cache field
   //  attach collection hooks
   let denormalizedSchemas = []
+  let mergedSchema = {}
   for (const schema of schemas) {
     const denormalizedSchema = Denormalize.generateSimpleSchema(schema, AUTOFORM_IS_ACTIVE)
     denormalizedSchemas.push(denormalizedSchema)
-    Denormalize.hookMeUp(this, schema)
+    _.extend(mergedSchema, denormalizedSchema)
   }
+  Denormalize.hookMeUp(this, mergedSchema)
+
   // attach "denormalized"-Schemas via standard SimpleSchema.attachSchema
   this.attachSchema(denormalizedSchemas)
 }
@@ -90,7 +93,7 @@ export const Denormalize = class Denormalize {
         }
       }
     }
-    return returnKeys
+    return _.uniq(returnKeys)
   }
 
   static _getModeForKey(key) {
@@ -154,19 +157,21 @@ export const Denormalize = class Denormalize {
         // "RELATION_MANY_TO_ONE"
         //  example: MANY "comments" can belong to ONE post
         //  WE ARE IN THE "COMMENTS"-COLLECTION
+        //  and want to reference to the one post we belong to.
+        //  There are 2 properties for doing so:
         //   1) referenceProperty: comments.postId
         //   2) cacheProperty:     comments.postCache:
 
-        // INSERT-HOOK (p.e. "a comment is inserted")
+        // INSERT-HOOK (p.e. "a comment is inserted, maybe with a post attached")
         collection.after.insert(function (userId, doc) {
           debug('=====================================================')
-          debug(`${collection._name}.after.insert - field ${key}`)
+          debug(`${collection._name}.after.insert - field ${key} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReference})`)
           const docId = this._id
           const referenceId = doc[key]
           if (referenceId) {
             // collection (p.e. comment):
             //  * fill the cacheProperty by loading from related collection
-            //  (p.e. "postCache" by "postId")
+            //  (p.e. load "postCache" by "postId")
             const docForCache = Denormalize._pickAndOmitFields(relatedCollection.findOne(referenceId), pickAttributes, omitAttributes)
             const jsonModifier = `{"$set": {"${cacheName}": ${JSON.stringify(docForCache)} } }`
             const modifier = JSON.parse(jsonModifier)
@@ -177,16 +182,14 @@ export const Denormalize = class Denormalize {
             //  * add comment._id to postIds
             //  * add comment-instance to postCache
             const cacheNameInRelatedCollection = Denormalize._getCacheNameFromReferenceKey(relatedReference)
-            const jsonSelector = `{ "_id": "${referenceId}" }`
-            const selector = JSON.parse(jsonSelector)
-            const docInRelatedCollection = relatedCollection.findOne(selector)
+            const docInRelatedCollection = relatedCollection.findOne(referenceId)
             // .. relatedReference
             docInRelatedCollection[relatedReference] = docInRelatedCollection[relatedReference] || []
             docInRelatedCollection[relatedReference].push(docId)
             // .. cacheNameInRelatedCollection
             if (!docInRelatedCollection[cacheNameInRelatedCollection]
               || (docInRelatedCollection[cacheNameInRelatedCollection]
-                && !ocInRelatedCollection[cacheNameInRelatedCollection].instances)) {
+                && !docInRelatedCollection[cacheNameInRelatedCollection].instances)) {
               docInRelatedCollection[cacheNameInRelatedCollection] = { instances: [] }
             }
             docInRelatedCollection[cacheNameInRelatedCollection].instances.push(doc)
@@ -212,6 +215,105 @@ export const Denormalize = class Denormalize {
         //  * relatedCollection (p.e. post):
         //    * remove _id from comment._id to postIds
         //    * remove _id forom postCache
+      } else if (relation===Denormalize.RELATION_ONE_TO_MANY) {
+        // "RELATION_ONE_TO_MANY"
+        //  example: ONE post can have MANY "comments"
+        //  WE ARE IN THE "POSTS"-COLLECTION
+        //  and want to reference to the many comments
+        //  that belong to our single post.
+        //  There are 2 properties for doing so:
+        //   1) referenceProperty: posts.commentIds
+        //   2) cacheProperty:     posts.commentCache.instances:
+
+        // INSERT-HOOK (p.e. "a post is inserted, maybe with comments attached")
+        collection.after.insert(function (userId, doc) {
+          debug('=====================================================')
+          debug(`${collection._name}.after.insert - field ${key} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReference})`)
+          //  collection (p.e. posts):
+          //   * fill the cacheProperty by loading from related collection
+          //   (p.e. "commentCache.instances" by "commentIds")
+          // WHY IS THIS RUN twice???
+          const docId = this._id
+          const referenceIds = doc[key]
+          if (referenceIds) {
+            // LOOP THRU id-FIELDS set in doc
+            //  and simply generarte cacheProperty
+            //  WE ARE IN INSERT MODE and do NOT need to compare what changed
+            const newCache = []
+            for (const referenceId of referenceIds) {
+              const docInRelatedCollection = relatedCollection.findOne(referenceId)
+              if (!docInRelatedCollection) {
+                throw new Error(`data inconsistency detected - a doc with the given id "${referenceId}" does NOT exist in collection "${relatedCollection}._name"`)
+              }
+              newCache.push(docInRelatedCollection)
+            }
+            doc[cacheName] = { instances: newCache }
+            const updates = collection.direct.update(docId, { $set: doc }, {bypassCollection2: true, validate: false, filter: false, autoConvert: false, removeEmptyStrings:false, getAutoValues: false })
+            debug(`${updates} docs updated in collection ${collection._name}`)
+
+            //  relatedCollection (p.e. comments):
+            //  For each comment that is hold in the post:
+            //   * add post._id to comment.postId
+            //   * add post-instance to comment.postCache
+            //   * if relatedCollection (Comment) was assigned to a different Post,
+            //     the different post needs to get the comment removed
+            for (const referenceId of referenceIds) {
+              const cacheNameInRelatedCollection = Denormalize._getCacheNameFromReferenceKey(relatedReference)
+              const docInRelatedCollection = relatedCollection.findOne(referenceId)
+              // if relatedCollection (Comment) was assigned to a different Post,
+              //  the different post needs to get the comment removed
+              const oldRelatedReference = docInRelatedCollection[relatedReference]
+              /*
+              if (oldRelatedReference
+                && oldRelatedReference!==docId) {
+                const oldRelatedReferenceDoc = collection.findOne(oldRelatedReference)
+                debug('found oldRelatedReferenceDoc', oldRelatedReferenceDoc)
+                // TODO: REMOVE id from array
+                const oldReferences = oldRelatedReferenceDoc[key]
+                if (oldReferences) {
+                  oldRelatedReferenceDoc[key] = _.without(oldReferences, docId)
+                }
+                // TODO: RELOAD instances
+                oldRelatedReferenceDoc[key] = _.without(oldReferences, docId)
+
+                const newCache = []
+                for (const newId in oldRelatedReferenceDoc[key]) {
+                  newCache.push(relatedCollection.findOne(newId))
+                }
+                oldRelatedReferenceDoc[cacheNameInRelatedCollection] = newCache
+                const updates = collection.direct.update(oldRelatedReferenceDoc._id, { $set: oldRelatedReferenceDoc }, {bypassCollection2: true, validate: false, filter: false, autoConvert: false, removeEmptyStrings:false, getAutoValues: false })
+                debug(`${updates} docs updated in collection ${collection._name}`)
+                debug(`collection.findOne(oldRelatedReference)`, collection.findOne(oldRelatedReference))
+              }
+              */
+              // .. relatedReference
+              docInRelatedCollection[relatedReference] = docId
+              // .. cacheNameInRelatedCollection
+              docInRelatedCollection[cacheNameInRelatedCollection] = doc
+              const updates2 = relatedCollection.direct.update(docInRelatedCollection._id, { $set: docInRelatedCollection }, {bypassCollection2: true, validate: false, filter: false, autoConvert: false, removeEmptyStrings:false, getAutoValues: false })
+              debug(`${updates2} docs updated in collection ${relatedCollection._name}`)
+            }
+          }
+        })
+
+        //  UPDATE-HOOK (p.e. "a post gets updated, maybe it got som comments
+        //   added and some removed, maybe it gets a different text, ...")
+        //  collection (p.e. posts):
+        //  * collection: (p.e. "post")
+        //    * where comments added or removed? yes: refill the cacheProperty
+        //      by loading from related collection. If it was removed:
+        //      set "comment.postId: null" && "comment.postCache: null"
+        //      (p.e. fill "postCache" by new "postId")
+        //  * relatedCollection (p.e. comment):
+        //    * did comment.postId change? If yes, then update the old related posts-collection to have null at postsId. Update comment.postId and comment.postCache
+        //    * Whenever a standard-property of "collection" has changed:
+        //      reload the chached-version in relatedCollection.
+
+        // REMOVE-HOOK
+        //  * collection (p.e. posts):
+        //  * relatedCollection (p.e. comments):
+        //    * Set all related comments to ``comments.postId = null``
+        //    * and ``comments.postCache = null``
       }
     }
   }
