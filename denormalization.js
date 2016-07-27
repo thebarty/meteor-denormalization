@@ -214,7 +214,6 @@ export const Denormalize = class Denormalize {
         collection.after.update(function(userId, doc, fieldNames, modifier, options) {
           debug('=====================================================')
           debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReference})`)
-          debug('modifier', modifier)
           const docId = doc._id
           const referenceId = doc[keyInSchema]
           const referenceIdBefore = this.previous[keyInSchema]
@@ -387,6 +386,81 @@ export const Denormalize = class Denormalize {
         //    * did comment.postId change? If yes, then update the old related posts-collection to have null at postsId. Update comment.postId and comment.postCache
         //    * Whenever a standard-property of "collection" has changed:
         //      reload the chached-version in relatedCollection.
+        // UPDATE-HOOK (p.e. "a comment is updated, p.e. its text is changed, or it is assigned a different post")
+        collection.after.update(function(userId, doc, fieldNames, modifier, options) {
+          debug('=====================================================')
+          debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReference})`)
+          const docId = doc._id
+          const referenceId = doc[keyInSchema]
+          const referenceIdBefore = this.previous[keyInSchema]
+          const referenceIdHasChanged = _.contains(fieldNames, keyInSchema)
+
+          // was referenceId-field updated?
+          /*
+          if(referenceIdHasChanged) {
+            // edit collection: (p.e. "comment")
+            //  * did postId change or was it removed? If yes: refill the
+            //    cacheProperty by loading from related collection. If it was removed:
+            //    set "postId: null" && "postCache: null"
+            //    (p.e. fill "postCache" by new "postId")
+            debug(`referenceId was updated - RELOAD cache`)
+            // * reload cache
+            //   this needs to also work when referenceId was removed and is undefined
+            Denormalize._setReferenceAndReloadCache({
+              collection,
+              relatedCollection,
+              relatedReference,
+              _id: doc._id,
+              valueForReferenceOne: referenceId || null,
+            })
+
+            // edit relatedCollection (p.e. post):
+            //  * sync to related collection (relatedDoc) if we have a reference
+            //  * If "collection._id" was remove, remove it from "relatedCollection"
+            //  * update lost reference (did collection.postId change or was it removed? If yes: in the old referenceId: Remove commentId from commentIds (including commentCache) and in NEW referneceID: add commentId and commentCache.)
+            //      reload the chached-version in relatedCollection.
+            //  * Whenever a standard-property of "collection" has changed:
+            //    sync related collection
+
+            // sync to related collection (relatedDoc) if we have a reference
+            if (referenceId) {
+              Denormalize._addIdToReference({
+                _id: referenceId,
+                addId: docId,
+                collection: relatedCollection,
+                relatedCollection: collection,
+                relatedReference,
+              })
+            }
+
+            // update lost reference
+            const referenceIdBefore = this.previous[keyInSchema]
+            if (referenceIdBefore
+                && referenceIdBefore!==referenceId) {
+              // Renew the denormalization of a doc
+              // by passing a new value for referenceIds
+              debug(`removing reference to ${doc._id} in old reference in related collection`)
+              Denormalize._removeIdFromReference({
+                _id: referenceIdBefore,
+                removeId: docId,  // referenceId?
+                collection: relatedCollection,
+                relatedCollection: collection,
+                relatedReference,
+              })
+            }
+          } else {
+            // the data of the doc has change - simply update its references
+            Denormalize._refreshDenormalization({
+              _id: referenceId,
+              collection: relatedCollection,
+              referenceProperty: relatedReference,
+              relation: Denormalize.RELATION_ONE_TO_MANY,  // the opposite relation!!!
+              relatedCollection: collection,
+              relatedReference: keyInSchema,
+            })
+          }
+          */
+        })
 
         // REMOVE-HOOK
         //  * collection (p.e. posts):

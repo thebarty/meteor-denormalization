@@ -195,14 +195,14 @@ const createExample1Fixtures = function() {
     post: 'post 1',
     commentIds: [
       commentId1,
-      commentId2,
+      commentId2, // will be lost to post2
     ]
   })
   const postId2 = Posts.insert({
     authorId: authorId1,
     post: 'post 2',
     commentIds: [
-      commentId2,
+      commentId2,  // wins
       commentId3,
     ]
   })
@@ -224,11 +224,14 @@ const createExample1Fixtures = function() {
   const comment1 = Comments.findOne(commentId1)
   const comment2 = Comments.findOne(commentId2)
   const comment3 = Comments.findOne(commentId3)
+  const comment4 = Comments.findOne(commentId4)
   const author1 = Authors.findOne(authorId1)
   const author2 = Authors.findOne(authorId2)
   const author3 = Authors.findOne(authorId3)
   const post1 = Posts.findOne(postId1)
   const post2 = Posts.findOne(postId2)
+  const post3 = Posts.findOne(postId3)
+  const post4 = Posts.findOne(postId4)
 
   // comments
   expect(comment1.comment).to.equal('comment 1')
@@ -238,6 +241,14 @@ const createExample1Fixtures = function() {
   expect(comment2.comment).to.equal('comment 2')
   expect(comment2.postId).to.equal(postId2)
   expect(comment2.postCache.post).to.equal('post 2')
+
+  expect(comment3.comment).to.equal('comment 3')
+  expect(comment3.postId).to.equal(postId2)
+  expect(comment2.postCache.post).to.equal('post 2')
+
+  expect(comment4.comment).to.equal('comment 4')
+  expect(comment4.postId).to.equal(postId4)
+  expect(comment4.postCache.post).to.equal('post 4')
 
   // authors
   expect(author1.postIds).to.deep.equal([postId1, postId2])
@@ -266,6 +277,17 @@ const createExample1Fixtures = function() {
   expect(post2.commentCache.instances.length).to.equal(2)
   expect(post2.commentCache.instances[0].comment).to.equal('comment 2')
   expect(post2.commentCache.instances[1].comment).to.equal('comment 3')
+
+  expect(post3.authorId).to.equal(authorId2)
+  expect(post3.authorCache.name).to.equal('author 2')
+  expect(post3.commentIds).to.deep.equal([])
+  expect(post3.commentCache.instances.length).to.equal(0)
+
+  expect(post4.authorId).to.equal(authorId2)
+  expect(post4.authorCache.name).to.equal('author 2')
+  expect(post4.commentIds).to.deep.equal([commentId4])
+  expect(post4.commentCache.instances.length).to.equal(1)
+  expect(post4.commentCache.instances[0].comment).to.equal('comment 4')
 
   return {
     commentId1,
@@ -602,7 +624,7 @@ if (Meteor.isServer) {
       expect(post2.commentCache.instances[0].comment).to.equal('comment 1')
     })
 
-    it('Example 1 - Scenario 4 works: Updates are synced correctly', function () {
+    it('Example 1 - Scenario 4 works: Updates are synced correctly from RELATION_MANY_TO_ONE perspective', function () {
       // Load fixtures
       const fixtures = createExample1Fixtures()
 
@@ -616,7 +638,7 @@ if (Meteor.isServer) {
       const post1 = Posts.findOne(fixtures.postId1)
       const post2 = Posts.findOne(fixtures.postId2)
 
-      // lets update references - will cache be synced?
+      // lets update RELATION_MANY_TO_ONE references - will cache be synced?
       Comments.update(fixtures.commentId1, { $set: { postId: fixtures.postId2 } })
 
       // got post1 updated? (has comment been removed?)
@@ -627,8 +649,6 @@ if (Meteor.isServer) {
       expect(post1_2.commentCache.instances.length).to.equal(0)
       // got post2 updated? (has comment been removed?)
       const post2_2 = Posts.findOne(fixtures.postId2)
-      console.log('post2_2 AFTER UPDATE')
-      console.log(post2_2)
       expect(post2_2.authorId).to.equal(fixtures.authorId1)
       expect(post2_2.authorCache.name).to.equal('author 1')
       expect(post2_2.commentIds).to.deep.equal([fixtures.commentId2, fixtures.commentId3, fixtures.commentId1])
@@ -650,7 +670,7 @@ if (Meteor.isServer) {
       expect(post2_2.commentCache.instances[2].comment).to.equal('comment 1')
     })
 
-    it('Example 1 - Scenario 5 works: Updates are synced correctly when reference is removed', function () {
+    it('Example 1 - Scenario 5 works: Updates are synced correctly when reference is removed in a RELATION_MANY_TO_ONE', function () {
       // Load fixtures
       const fixtures = createExample1Fixtures()
 
@@ -663,6 +683,67 @@ if (Meteor.isServer) {
       expect(post1.authorCache.name).to.equal('author 1')
       expect(post1.commentIds).to.deep.equal([])
       expect(post1.commentCache.instances.length).to.equal(0)
+    })
+
+    it('Example 1 - Scenario 6 works: Updates are synced correctly from RELATION_ONE_TO_MANY perspective', function () {
+      // Load fixtures
+      const fixtures = createExample1Fixtures()
+
+      // lets update RELATION_ONE_TO_MANY references - will cache be synced?
+      // .. ADD a field
+      // .. REMOVE a field
+      // .. remove ALL fields
+      // INITIAL Data:
+      //  post1: comment1
+      //  post2: comment2, comment3
+      Posts.update(fixtures.postId1, { $set: { commentIds: [fixtures.commentId1, fixtures.commentId3] } })
+
+      // check comments
+      const comment1 = Comments.findOne(fixtures.commentId1)
+      const comment2 = Comments.findOne(fixtures.commentId2)
+      const comment3 = Comments.findOne(fixtures.commentId3)
+      expect(comment1.comment).to.equal('comment 1')
+      expect(comment1.postId).to.equal(fixtures.postId1)
+      expect(comment1.postCache.post).to.equal('post 1')
+      // expect comment3 to be assigned to post1
+      expect(comment3.comment).to.equal('comment 3')
+      expect(comment3.postId).to.equal(fixtures.postId1)
+      expect(comment3.postCache.post).to.equal('post 1')
+
+      // check posts
+      const post1 = Posts.findOne(fixtures.postId1)
+      const post2 = Posts.findOne(fixtures.postId2)
+      // expect cache to be updated
+      expect(post1.authorId).to.equal(fixtures.authorId1)
+      expect(post1.authorCache.name).to.equal('author 1')
+      expect(post1.commentIds).to.deep.equal([fixtures.commentId1, fixtures.commentId3])
+      expect(post1.commentCache.instances.length).to.equal(2)
+      expect(post1.commentCache.instances[0].comment).to.equal('comment 1')
+      expect(post1.commentCache.instances[1].comment).to.equal('comment 3')
+      // expect post2 to have old reference (comment3) removed
+      expect(post2.authorId).to.equal(fixtures.authorId1)
+      expect(post2.authorCache.name).to.equal('author 1')
+      expect(post2.commentIds).to.deep.equal([fixtures.commentId2])
+      expect(post2.commentCache.instances.length).to.equal(1)
+      expect(post2.commentCache.instances[0].comment).to.equal('comment 2')
+
+      // lets update a comment - will post be synced?
+      Posts.update(fixtures.postId1, { $set: { post: 'post 1 NEW TEXT' } })
+    })
+
+    xit('Example 1 - Scenario 5 works: Updates are synced correctly when reference is removed in a RELATION_ONE_TO_MANY', function () {
+      // Load fixtures
+      const fixtures = createExample1Fixtures()
+
+      // lets update and remove a reference - will cache be synced?
+      // Comments.update(fixtures.commentId1, { $unset: { postId: "" } })
+
+      // // posts - got comment removed from post?
+      // const post1 = Posts.findOne(fixtures.postId1)
+      // expect(post1.authorId).to.equal(fixtures.authorId1)
+      // expect(post1.authorCache.name).to.equal('author 1')
+      // expect(post1.commentIds).to.deep.equal([])
+      // expect(post1.commentCache.instances.length).to.equal(0)
     })
 
     xit('Example 1 - Scenario 5 works: Removes are synced correctly', function () {
