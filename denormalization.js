@@ -164,7 +164,7 @@ export const Denormalize = class Denormalize {
     for (const keyInSchema of denormalizedKeys) {
       debug(`creating hooks for keyInSchema "${keyInSchema}" `)
       Denormalize._validateDenormalizedSettings(schema, keyInSchema)
-      const { relation, relatedCollection, relatedReference, pickAttributes, omitAttributes, extendCacheFieldBy } = schema[keyInSchema]['denormalize']
+      const { relation, relatedCollection, relatedReferenceProperty, pickAttributes, omitAttributes, extendCacheFieldBy } = schema[keyInSchema]['denormalize']
       const mode = Denormalize._getModeForKey(keyInSchema)
       const cacheName = Denormalize._getCacheNameFromReferenceKey(keyInSchema)
 
@@ -180,7 +180,7 @@ export const Denormalize = class Denormalize {
         // INSERT-HOOK (p.e. "a comment is inserted, maybe with a post attached")
         collection.after.insert(function (userId, doc) {
           debug('=====================================================')
-          debug(`${collection._name}.after.insert - field ${keyInSchema} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReference})`)
+          debug(`${collection._name}.after.insert - field ${keyInSchema} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReferenceProperty})`)
           const docId = this._id
           const referenceId = doc[keyInSchema]
           if (referenceId) {
@@ -198,10 +198,10 @@ export const Denormalize = class Denormalize {
             //  * add comment._id to postIds
             //  * add comment-instance to postCache
             let relatedDoc = relatedCollection.findOne(referenceId)
-            relatedDoc = Denormalize._ensureArrayProperty(relatedDoc, relatedReference)
-            const cacheName = Denormalize._getCacheNameFromReferenceKey(relatedReference)
+            relatedDoc = Denormalize._ensureArrayProperty(relatedDoc, relatedReferenceProperty)
+            const cacheName = Denormalize._getCacheNameFromReferenceKey(relatedReferenceProperty)
             relatedDoc = Denormalize._ensureCacheInstancesProperty({ doc: relatedDoc, cacheName })
-            relatedDoc[relatedReference].push(docId)
+            relatedDoc[relatedReferenceProperty].push(docId)
             relatedDoc[cacheName][Denormalize.CACHE_INSTANCE_FIELD].push(doc)
             Denormalize._updateDocInCollection({
               doc: relatedDoc,
@@ -213,7 +213,7 @@ export const Denormalize = class Denormalize {
         // UPDATE-HOOK (p.e. "a comment is updated, p.e. its text is changed, or it is assigned a different post")
         collection.after.update(function(userId, doc, fieldNames, modifier, options) {
           debug('=====================================================')
-          debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReference})`)
+          debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReferenceProperty})`)
           const docId = doc._id
           const referenceId = doc[keyInSchema]
           const referenceIdBefore = this.previous[keyInSchema]
@@ -232,7 +232,7 @@ export const Denormalize = class Denormalize {
             Denormalize._setReferenceAndReloadCache({
               collection,
               relatedCollection,
-              relatedReference,
+              relatedReferenceProperty,
               _id: doc._id,
               valueForReferenceOne: referenceId || null,
             })
@@ -252,7 +252,7 @@ export const Denormalize = class Denormalize {
                 addId: docId,
                 collection: relatedCollection,
                 relatedCollection: collection,
-                relatedReference,
+                relatedReferenceProperty,
               })
             }
 
@@ -268,7 +268,7 @@ export const Denormalize = class Denormalize {
                 removeId: docId,  // referenceId?
                 collection: relatedCollection,
                 relatedCollection: collection,
-                relatedReference,
+                relatedReferenceProperty,
               })
             }
           } else {
@@ -276,10 +276,10 @@ export const Denormalize = class Denormalize {
             Denormalize._refreshDenormalization({
               _id: referenceId,
               collection: relatedCollection,
-              referenceProperty: relatedReference,
+              referenceProperty: relatedReferenceProperty,
               relation: Denormalize.RELATION_ONE_TO_MANY,  // the opposite relation!!!
               relatedCollection: collection,
-              relatedReference: keyInSchema,
+              relatedReferenceProperty: keyInSchema,
             })
           }
         })
@@ -302,7 +302,7 @@ export const Denormalize = class Denormalize {
         // INSERT-HOOK (p.e. "a post is inserted, maybe with comments attached")
         collection.after.insert(function (userId, doc) {
           debug('=====================================================')
-          debug(`${collection._name}.after.insert - field ${keyInSchema} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReference})`)
+          debug(`${collection._name}.after.insert - field ${keyInSchema} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReferenceProperty})`)
 
           const docId = this._id
           const referenceIds = doc[keyInSchema]
@@ -335,12 +335,12 @@ export const Denormalize = class Denormalize {
             //  * add post-instance to comment.postCache
             //  * if before the comment was assigned to a different Post,
             //    then remove the current comment from the old-referenced Post.
-            const cacheNameRelated = Denormalize._getCacheNameFromReferenceKey(relatedReference)
+            const cacheNameRelated = Denormalize._getCacheNameFromReferenceKey(relatedReferenceProperty)
             for (const referenceId of referenceIds) {
               let docRelated = relatedCollection.findOne(referenceId)
-              const docIdReferencedBefore = docRelated[relatedReference]  // store for later
-              // .. relatedReference
-              docRelated[relatedReference] = docId
+              const docIdReferencedBefore = docRelated[relatedReferenceProperty]  // store for later
+              // .. relatedReferenceProperty
+              docRelated[relatedReferenceProperty] = docId
               // .. cacheNameRelated
               docRelated[cacheNameRelated] = doc
               Denormalize._updateDocInCollection({
@@ -367,7 +367,7 @@ export const Denormalize = class Denormalize {
                   collection,
                   relatedCollection,
                   valueForReferenceMany: _.without(docReferencedBefore[keyInSchema], referenceId),
-                  relatedReference: keyInSchema,
+                  relatedReferenceProperty: keyInSchema,
                 })
               }
             }
@@ -389,7 +389,7 @@ export const Denormalize = class Denormalize {
         // UPDATE-HOOK (p.e. "a comment is updated, p.e. its text is changed, or it is assigned a different post")
         collection.after.update(function(userId, doc, fieldNames, modifier, options) {
           debug('=====================================================')
-          debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReference})`)
+          debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReferenceProperty})`)
           const docId = doc._id
           const referenceId = doc[keyInSchema]
           const referenceIdBefore = this.previous[keyInSchema]
@@ -409,7 +409,7 @@ export const Denormalize = class Denormalize {
             Denormalize._setReferenceAndReloadCache({
               collection,
               relatedCollection,
-              relatedReference,
+              relatedReferenceProperty,
               _id: doc._id,
               valueForReferenceOne: referenceId || null,
             })
@@ -429,7 +429,7 @@ export const Denormalize = class Denormalize {
                 addId: docId,
                 collection: relatedCollection,
                 relatedCollection: collection,
-                relatedReference,
+                relatedReferenceProperty,
               })
             }
 
@@ -445,7 +445,7 @@ export const Denormalize = class Denormalize {
                 removeId: docId,  // referenceId?
                 collection: relatedCollection,
                 relatedCollection: collection,
-                relatedReference,
+                relatedReferenceProperty,
               })
             }
           } else {
@@ -453,10 +453,10 @@ export const Denormalize = class Denormalize {
             Denormalize._refreshDenormalization({
               _id: referenceId,
               collection: relatedCollection,
-              referenceProperty: relatedReference,
+              referenceProperty: relatedReferenceProperty,
               relation: Denormalize.RELATION_ONE_TO_MANY,  // the opposite relation!!!
               relatedCollection: collection,
-              relatedReference: keyInSchema,
+              relatedReferenceProperty: keyInSchema,
             })
           }
           */
@@ -524,7 +524,7 @@ export const Denormalize = class Denormalize {
         // other relations NOT YET supported
       ] },
       relatedCollection: { type: Mongo.Collection },
-      relatedReference: { type: String, optional: true },
+      relatedReferenceProperty: { type: String, optional: true },
       pickAttributes: { type: [String], optional: true },
       omitAttributes: { type: [String], optional: true },
       extendCacheFieldBy: { type: Object, optional: true, blackbox: true, }
@@ -533,15 +533,15 @@ export const Denormalize = class Denormalize {
 
     // more detailed validation
     if (settings.relation===Denormalize.RELATION_MANY_TO_ONE) {
-      // "relatedReference" is mandatory
-      if (!Match.test(settings.relatedReference, String)) {
-        throw new Error(`you need to define "relatedReference" when using a "RELATION_MANY_TO_ONE"-relation for property "${keyInSchema}"`)
+      // "relatedReferenceProperty" is mandatory
+      if (!Match.test(settings.relatedReferenceProperty, String)) {
+        throw new Error(`you need to define "relatedReferenceProperty" when using a "RELATION_MANY_TO_ONE"-relation for property "${keyInSchema}"`)
       }
-      // "relatedReference"-field needs to exist in schema of relatedCollection
+      // "relatedReferenceProperty"-field needs to exist in schema of relatedCollection
       //  simpleSchema is NOT available during instanciation of the collections
       if (settings.relatedCollection.simpleSchema()
-          && !_.contains(settings.relatedCollection.simpleSchema()._schemaKeys, settings.relatedReference)) {
-        throw new Error(`within keyInSchema "${keyInSchema}" you are referencing relatedReference to "${settings.relatedCollection._name}.${settings.relatedReference}", BUT this property does NOT exist in collection "${settings.relatedCollection._name}"`)
+          && !_.contains(settings.relatedCollection.simpleSchema()._schemaKeys, settings.relatedReferenceProperty)) {
+        throw new Error(`within keyInSchema "${keyInSchema}" you are referencing relatedReferenceProperty to "${settings.relatedCollection._name}.${settings.relatedReferenceProperty}", BUT this property does NOT exist in collection "${settings.relatedCollection._name}"`)
       }
     }
   }
@@ -693,22 +693,22 @@ export const Denormalize = class Denormalize {
     check(options._id, String)
     check(options.collection, Mongo.Collection)
     check(options.relatedCollection, Mongo.Collection)
-    check(options.relatedReference, String)
+    check(options.relatedReferenceProperty, String)
     // set valueForReferenceOne or valueForReferenceMany "null" to set to empty
     //  p.e. like ``valueForReferenceOne: referenceId || null``
     check(options.valueForReferenceOne, Match.Maybe(String))
     check(options.valueForReferenceMany, Match.Maybe([String]))
     if (_.isUndefined(options.valueForReferenceOne) && _.isUndefined(options.valueForReferenceMany))
       throw new Error('you need to either set option "valueForReferenceOne" or "valueForReferenceMany"')
-    const { _id, collection, relatedCollection, relatedReference, valueForReferenceOne, valueForReferenceMany } = options
+    const { _id, collection, relatedCollection, relatedReferenceProperty, valueForReferenceOne, valueForReferenceMany } = options
 
     // prepare new doc
-    const cacheName = Denormalize._getCacheNameFromReferenceKey(relatedReference)
+    const cacheName = Denormalize._getCacheNameFromReferenceKey(relatedReferenceProperty)
     let doc = collection.findOne(_id)
     if (!_.isUndefined(valueForReferenceOne)) {
       // valueForReferenceOne
       if (valueForReferenceOne!==null) {
-        doc[relatedReference] = valueForReferenceOne
+        doc[relatedReferenceProperty] = valueForReferenceOne
         const relatedDoc = relatedCollection.findOne(valueForReferenceOne)
         if (!relatedDoc) {
           // validate consistency
@@ -716,19 +716,19 @@ export const Denormalize = class Denormalize {
         }
         doc[cacheName] = relatedDoc
       } else {
-        debug(`unsetting reference-props "${relatedReference}" and "${cacheName}" to undefined`)
+        debug(`unsetting reference-props "${relatedReferenceProperty}" and "${cacheName}" to undefined`)
         // THIS is NOT fully TESTED
         // = null (remove id)
-        // delete doc[relatedReference]
+        // delete doc[relatedReferenceProperty]
         // delete doc[cacheName]
-        doc[relatedReference] = undefined
+        doc[relatedReferenceProperty] = undefined
         doc[cacheName] = undefined
       }
     } else {
       // valueForReferenceMany
-      doc = Denormalize._ensureArrayProperty(doc, relatedReference)
+      doc = Denormalize._ensureArrayProperty(doc, relatedReferenceProperty)
       doc = Denormalize._ensureCacheInstancesProperty({ doc, cacheName })
-      doc[relatedReference] = valueForReferenceMany
+      doc[relatedReferenceProperty] = valueForReferenceMany
       const newCache = []
       for (const id of valueForReferenceMany) {
         const relatedDoc = relatedCollection.findOne(id)
@@ -762,23 +762,23 @@ export const Denormalize = class Denormalize {
       removeId: { type: String },
       collection: { type: Mongo.Collection },
       relatedCollection: { type: Mongo.Collection },
-      relatedReference: { type: String },
+      relatedReferenceProperty: { type: String },
     }).validate(options)
 
     // we are in a MANY relationship
-    const { _id, removeId, collection, relatedCollection, relatedReference } = options
+    const { _id, removeId, collection, relatedCollection, relatedReferenceProperty } = options
 
     let doc = collection.findOne(_id)
     if (!doc) {
       throw new Error(`you are trying to remove a reference from doc "${_id}", but the doc does NOT exist!`)
     }
-    doc = Denormalize._ensureArrayProperty(doc, relatedReference)
+    doc = Denormalize._ensureArrayProperty(doc, relatedReferenceProperty)
     Denormalize._setReferenceAndReloadCache({
       _id,
       collection,
       relatedCollection,
-      relatedReference,
-      valueForReferenceMany: _.without(doc[relatedReference], removeId),
+      relatedReferenceProperty,
+      valueForReferenceMany: _.without(doc[relatedReferenceProperty], removeId),
     })
   }
 
@@ -796,22 +796,22 @@ export const Denormalize = class Denormalize {
       addId: { type: String },
       collection: { type: Mongo.Collection },
       relatedCollection: { type: Mongo.Collection },
-      relatedReference: { type: String },
+      relatedReferenceProperty: { type: String },
     }).validate(options)
-    const { _id, addId, collection, relatedCollection, relatedReference } = options
-    debug(`adding id "${addId}" as reference to "${_id}" in collection "${collection._name}.${relatedReference}"`)
+    const { _id, addId, collection, relatedCollection, relatedReferenceProperty } = options
+    debug(`adding id "${addId}" as reference to "${_id}" in collection "${collection._name}.${relatedReferenceProperty}"`)
 
     let doc = collection.findOne(_id)
     if (!doc) {
       throw new Error(`you are trying to add a reference to doc "${_id}", but the doc does NOT exist!`)
     }
-    doc = Denormalize._ensureArrayProperty(doc, relatedReference)
+    doc = Denormalize._ensureArrayProperty(doc, relatedReferenceProperty)
     Denormalize._setReferenceAndReloadCache({
       _id,
       collection,
       relatedCollection,
-      relatedReference,
-      valueForReferenceMany: _.union(doc[relatedReference], [addId]),
+      relatedReferenceProperty,
+      valueForReferenceMany: _.union(doc[relatedReferenceProperty], [addId]),
     })
   }
 
@@ -831,9 +831,9 @@ export const Denormalize = class Denormalize {
       referenceProperty: { type: String },
       relation: { type: String, allowedValues: Denormalize.RELATION_OPTIONS },
       relatedCollection: { type: Mongo.Collection },
-      relatedReference: { type: String },
+      relatedReferenceProperty: { type: String },
     }).validate(options)
-    const { _id, collection, referenceProperty, relation, relatedCollection, relatedReference } = options
+    const { _id, collection, referenceProperty, relation, relatedCollection, relatedReferenceProperty } = options
     debug(`refreshing denormalization for doc "${_id}" in collection "${collection._name}" for referenceProperty "${referenceProperty}"`)
     const cacheName = Denormalize._getCacheNameFromReferenceKey(referenceProperty)
 

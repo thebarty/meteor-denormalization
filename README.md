@@ -76,7 +76,7 @@ Within your SimpleSchema you define a "denormalize"-relation, p.e. when defining
     denormalize: {
       relation: Denormalize.RELATION_ONE_TO_MANY,
       relatedCollection: Comments,
-      relatedReference: 'postId',
+      relatedReferenceProperty: 'postId',
     },
   }
   // "commentCache" (cacheProperty) will be created automatically
@@ -95,7 +95,7 @@ In the "Comments"-schema you can now link back to "Posts":
     denormalize: {
       relation: Denormalize.RELATION_MANY_TO_ONE,
       relatedCollection: Posts,
-      relatedReference: 'commentIds',
+      relatedReferenceProperty: 'commentIds',
   	}
   },
   // "postCache" (cacheProperty) will be created automatically

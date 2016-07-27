@@ -79,7 +79,7 @@ Authors.attachDenormalizedSchema([
       denormalize: {
         relation: Denormalize.RELATION_ONE_TO_MANY,
         relatedCollection: Posts,
-        relatedReference: 'authorId',
+        relatedReferenceProperty: 'authorId',
         pickAttributes: ['post'],
         extendCacheFieldBy: {
           label: 'Author denormalized Instance',
@@ -108,7 +108,7 @@ Comments.attachDenormalizedSchema({
     denormalize: {
       relation: Denormalize.RELATION_MANY_TO_ONE,
       relatedCollection: Posts,
-      relatedReference: 'commentIds',
+      relatedReferenceProperty: 'commentIds',
       pickAttributes: ['post'],
       extendCacheFieldBy: {
         // the content of this object is attached to the generated instance-field
@@ -139,7 +139,7 @@ Posts.attachDenormalizedSchema({
     denormalize: {
       relation: Denormalize.RELATION_ONE_TO_MANY,
       relatedCollection: Comments,
-      relatedReference: 'postId',
+      relatedReferenceProperty: 'postId',
       pickAttributes: ['comment'],
     },
   },
@@ -154,7 +154,7 @@ Posts.attachDenormalizedSchema({
     denormalize: {
       relation: Denormalize.RELATION_MANY_TO_ONE,
       relatedCollection: Authors,
-      relatedReference: 'postIds',
+      relatedReferenceProperty: 'postIds',
       pickAttributes: ['name'],
     },
   },
@@ -365,7 +365,7 @@ if (Meteor.isServer) {
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
               relatedCollection: Comments,
-              relatedReference: 'postId',
+              relatedReferenceProperty: 'postId',
               pickAttributes: ['post'],
               extendCacheFieldBy: {
                 label: 'Posts Instance',
@@ -393,7 +393,7 @@ if (Meteor.isServer) {
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
               relatedCollection: Comments,
-              relatedReference: 'postId',
+              relatedReferenceProperty: 'postId',
               pickAttributes: ['post'],
               extendCacheFieldBy: {
                 label: 'Posts Instance',
@@ -422,7 +422,7 @@ if (Meteor.isServer) {
             denormalize: {
               relation: Denormalize.RELATION_ONE_TO_MANY,
               relatedCollection: Posts,
-              relatedReference: 'authorId',
+              relatedReferenceProperty: 'authorId',
               pickAttributes: ['post'],
               extendCacheFieldBy: {
                 label: 'Author denormalized Instance',
@@ -446,7 +446,7 @@ if (Meteor.isServer) {
           denormalize: {
             relation: Denormalize.RELATION_MANY_TO_ONE,
             relatedCollection: Comments,
-            relatedReference: 'postIdssss',
+            relatedReferenceProperty: 'postIdssss',
           },
         },
       }
@@ -461,7 +461,7 @@ if (Meteor.isServer) {
           denormalize: {
             relation: Denormalize.RELATION_MANY_TO_ONE,
             relatedCollection: Comments,
-            relatedReference: 'postId',
+            relatedReferenceProperty: 'postId',
           },
         },
       }
