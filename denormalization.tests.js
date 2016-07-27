@@ -327,7 +327,7 @@ if (Meteor.isServer) {
       }).to.not.throw()
     })
 
-    it('Example 1 - Szenario 1 works', function () {
+    it('Example 1 - Scenario 1 works', function () {
       // Init
       AuthorsSimple.remove({})
       CommentsSimple.remove({})
@@ -370,7 +370,7 @@ if (Meteor.isServer) {
       expect(post.commentCache.instances[0].comment).to.equal('comment 1')
     })
 
-    it('Example 1 - Szenario 2 works ', function () {
+    it('Example 1 - Scenario 2 works ', function () {
       // Init
       AuthorsSimple.remove({})
       CommentsSimple.remove({})
@@ -416,7 +416,7 @@ if (Meteor.isServer) {
       expect(post.commentCache.instances[0].comment).to.equal('comment 1')
     })
 
-    xit('Example 1 - Szenario 3 works ', function () {
+    it('Example 1 - Scenario 3 works. Old references are removed', function () {
       // Init
       AuthorsSimple.remove({})
       CommentsSimple.remove({})
@@ -457,9 +457,10 @@ if (Meteor.isServer) {
       const comment = CommentsSimple.findOne(commentId)
 
       // authors
-      expect(author.postIds).to.deep.equal([postId])
-      expect(author.postCache.instances.length).to.equal(1)
-      expect(author.postCache.instances[0].post).to.equal('post 2')
+      expect(author.postIds).to.deep.equal([postId, postId2])
+      expect(author.postCache.instances.length).to.equal(2)
+      expect(author.postCache.instances[0].post).to.equal('post 1')
+      expect(author.postCache.instances[1].post).to.equal('post 2')
 
       // comments
       expect(comment.postId).to.equal(postId2)
