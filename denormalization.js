@@ -103,8 +103,6 @@ export const Denormalize = class Denormalize {
     //  an valid reference and cache field
     const denormalizedKeys = Denormalize._findDenormalizedKeysInSchema(schema)
     for (const keyInSchema of denormalizedKeys) {
-      debug(`processing denormalized keyInSchema "${keyInSchema}" `)
-
       const mode = Denormalize._getModeForKey(keyInSchema)
       Denormalize._validateDenormalizedSettings(schema, keyInSchema)
       const { relation, relatedCollection, pickAttributes, extendCacheFieldBy } = schema[keyInSchema]['denormalize']
@@ -158,11 +156,11 @@ export const Denormalize = class Denormalize {
    */
   static hookMeUp(collection, schema) {
     // create insert- update- remove-hooks
-    debug(`creating hooks for collection "${collection._name}"`)
+    debug(`creating hooks for collection `)
 
     const denormalizedKeys = Denormalize._findDenormalizedKeysInSchema(schema)
     for (const keyInSchema of denormalizedKeys) {
-      debug(`creating hooks for keyInSchema "${keyInSchema}" `)
+      debug(`creating hooks for "${collection._name}.${keyInSchema}" `)
       Denormalize._validateDenormalizedSettings(schema, keyInSchema)
       const { relation, relatedCollection, relatedReferenceProperty, pickAttributes, omitAttributes, extendCacheFieldBy } = schema[keyInSchema]['denormalize']
       const mode = Denormalize._getModeForKey(keyInSchema)
@@ -215,9 +213,10 @@ export const Denormalize = class Denormalize {
           debug('=====================================================')
           debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReferenceProperty})`)
           const docId = doc._id
-          const referenceId = doc[keyInSchema]
-          const referenceIdBefore = this.previous[keyInSchema]
-          const referenceIdHasChanged = _.contains(fieldNames, keyInSchema)
+          const referenceProperty = keyInSchema
+          const referenceId = doc[referenceProperty]
+          const referenceIdBefore = this.previous[referenceProperty]
+          const referenceIdHasChanged = _.contains(fieldNames, referenceProperty)
 
           // was referenceId-field updated?
           if(referenceIdHasChanged) {
@@ -226,13 +225,12 @@ export const Denormalize = class Denormalize {
             //    cacheProperty by loading from related collection. If it was removed:
             //    set "postId: null" && "postCache: null"
             //    (p.e. fill "postCache" by new "postId")
-            debug(`referenceId was updated - RELOAD cache`)
             // * reload cache
             //   this needs to also work when referenceId was removed and is undefined
             Denormalize._setReferenceAndReloadCache({
               collection,
+              referenceProperty,
               relatedCollection,
-              relatedReferenceProperty,
               _id: doc._id,
               valueForReferenceOne: referenceId || null,
             })
@@ -268,7 +266,7 @@ export const Denormalize = class Denormalize {
                 removeId: docId,  // referenceId?
                 collection: relatedCollection,
                 relatedCollection: collection,
-                relatedReferenceProperty,
+                referenceProperty: relatedReferenceProperty,
               })
             }
           } else {
@@ -354,7 +352,6 @@ export const Denormalize = class Denormalize {
                 && docIdReferencedBefore!==referenceId) {
                 const docReferencedBefore = collection.findOne(docIdReferencedBefore)
                 const oldReferenceInDocReferencedBefore = docReferencedBefore[keyInSchema]
-                debug(`clearing old relation to "${docIdReferencedBefore}" from doc "${referenceId}" in collection ${collection._name}`, docReferencedBefore)
                 // validating consistency
                 if (!docReferencedBefore
                   || (docReferencedBefore && !docReferencedBefore[keyInSchema])) {
@@ -365,9 +362,9 @@ export const Denormalize = class Denormalize {
                 Denormalize._setReferenceAndReloadCache({
                   _id: docIdReferencedBefore,
                   collection,
+                  referenceProperty: keyInSchema,
                   relatedCollection,
                   valueForReferenceMany: _.without(docReferencedBefore[keyInSchema], referenceId),
-                  relatedReferenceProperty: keyInSchema,
                 })
               }
             }
@@ -376,45 +373,32 @@ export const Denormalize = class Denormalize {
 
         //  UPDATE-HOOK (p.e. "a post gets updated, maybe it got som comments
         //   added and some removed, maybe it gets a different text, ...")
-        //  collection (p.e. posts):
-        //  * collection: (p.e. "post")
-        //    * where comments added or removed? yes: refill the cacheProperty
-        //      by loading from related collection. If it was removed:
-        //      set "comment.postId: null" && "comment.postCache: null"
-        //      (p.e. fill "postCache" by new "postId")
-        //  * relatedCollection (p.e. comment):
-        //    * did comment.postId change? If yes, then update the old related posts-collection to have null at postsId. Update comment.postId and comment.postCache
-        //    * Whenever a standard-property of "collection" has changed:
-        //      reload the chached-version in relatedCollection.
-        // UPDATE-HOOK (p.e. "a comment is updated, p.e. its text is changed, or it is assigned a different post")
         collection.after.update(function(userId, doc, fieldNames, modifier, options) {
           debug('=====================================================')
           debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReferenceProperty})`)
           const docId = doc._id
-          const referenceId = doc[keyInSchema]
-          const referenceIdBefore = this.previous[keyInSchema]
-          const referenceIdHasChanged = _.contains(fieldNames, keyInSchema)
+          const referenceProperty = keyInSchema
+          const referenceIds = doc[keyInSchema]
+          const referenceIdsBefore = this.previous[keyInSchema]
+          const referenceIdsHaveChanged = _.contains(fieldNames, keyInSchema)
 
-          // was referenceId-field updated?
-          /*
-          if(referenceIdHasChanged) {
-            // edit collection: (p.e. "comment")
-            //  * did postId change or was it removed? If yes: refill the
-            //    cacheProperty by loading from related collection. If it was removed:
-            //    set "postId: null" && "postCache: null"
-            //    (p.e. fill "postCache" by new "postId")
-            debug(`referenceId was updated - RELOAD cache`)
-            // * reload cache
-            //   this needs to also work when referenceId was removed and is undefined
+          // what referenceId-field was updated?
+          if(referenceIdsHaveChanged) {
+            // edit collection (p.e. posts):
+            // * reload cache:
+            //   were comments added or removed? yes: refill the cacheProperty
+            //   by loading from related collection. If it was totally removed:
+            //   set "comment.postId: null" && "comment.postCache: null"
+            //   (p.e. fill "postCache" by new "postId")
             Denormalize._setReferenceAndReloadCache({
               collection,
               relatedCollection,
-              relatedReferenceProperty,
               _id: doc._id,
-              valueForReferenceOne: referenceId || null,
+              referenceProperty,
+              valueForReferenceMany: referenceIds || null,
             })
 
-            // edit relatedCollection (p.e. post):
+            // edit relatedCollection (p.e. comment):
             //  * sync to related collection (relatedDoc) if we have a reference
             //  * If "collection._id" was remove, remove it from "relatedCollection"
             //  * update lost reference (did collection.postId change or was it removed? If yes: in the old referenceId: Remove commentId from commentIds (including commentCache) and in NEW referneceID: add commentId and commentCache.)
@@ -422,44 +406,62 @@ export const Denormalize = class Denormalize {
             //  * Whenever a standard-property of "collection" has changed:
             //    sync related collection
 
-            // sync to related collection (relatedDoc) if we have a reference
-            if (referenceId) {
-              Denormalize._addIdToReference({
-                _id: referenceId,
-                addId: docId,
-                collection: relatedCollection,
-                relatedCollection: collection,
-                relatedReferenceProperty,
-              })
-            }
+            // sync to related collection (relatedDoc) if we have references
+            //  which ids where REMOVED or ADDED to the doc?
+            const previousIds = this.previous[referenceProperty] || []
+            const currenctIds = doc[referenceProperty] || []
+            const addedIds = _.difference(currenctIds, previousIds)
+            const removedIds = _.difference(previousIds, currenctIds)
 
-            // update lost reference
-            const referenceIdBefore = this.previous[keyInSchema]
-            if (referenceIdBefore
-                && referenceIdBefore!==referenceId) {
-              // Renew the denormalization of a doc
-              // by passing a new value for referenceIds
-              debug(`removing reference to ${doc._id} in old reference in related collection`)
-              Denormalize._removeIdFromReference({
-                _id: referenceIdBefore,
-                removeId: docId,  // referenceId?
+            // process ADDED ids (p.e. "comments")
+            for (const addedId of addedIds) {
+              // set reference to related docs
+              const docRelated = relatedCollection.findOne(addedId)
+              const oldRelatedId = docRelated[relatedReferenceProperty]
+              Denormalize._setReferenceAndReloadCache({
+                _id: addedId,
                 collection: relatedCollection,
                 relatedCollection: collection,
-                relatedReferenceProperty,
+                referenceProperty: relatedReferenceProperty,
+                valueForReferenceOne: doc._id || null,
+              })
+
+              // remove reference from OLD relations of relatedDoc
+              //  p.e. tell the old post that the commend is gone
+              if (oldRelatedId) {
+                Denormalize._removeIdFromReference({
+                  collection,
+                  referenceProperty,
+                  relatedCollection,
+                  _id: oldRelatedId,
+                  removeId: addedId,
+                })
+              }
+            }
+            // process REMOVED ids
+            for (const removedId of removedIds) {
+              Denormalize._setReferenceAndReloadCache({
+                _id: removedId,
+                collection: relatedCollection,
+                relatedCollection: collection,
+                referenceProperty: relatedReferenceProperty,
+                valueForReferenceOne: null,  // remove it(!!)
               })
             }
           } else {
             // the data of the doc has change - simply update its references
-            Denormalize._refreshDenormalization({
-              _id: referenceId,
-              collection: relatedCollection,
-              referenceProperty: relatedReferenceProperty,
-              relation: Denormalize.RELATION_ONE_TO_MANY,  // the opposite relation!!!
-              relatedCollection: collection,
-              relatedReferenceProperty: keyInSchema,
-            })
+            //  yes, we have multiple
+            for (const referenceId of referenceIds) {
+              Denormalize._refreshDenormalization({
+                _id: referenceId,
+                collection: relatedCollection,
+                referenceProperty: relatedReferenceProperty,
+                relation: Denormalize.RELATION_MANY_TO_ONE,  // the opposite relation!!!
+                relatedCollection: collection,
+                relatedReferenceProperty: keyInSchema,
+              })
+            }
           }
-          */
         })
 
         // REMOVE-HOOK
@@ -529,7 +531,6 @@ export const Denormalize = class Denormalize {
       omitAttributes: { type: [String], optional: true },
       extendCacheFieldBy: { type: Object, optional: true, blackbox: true, }
     }).validate(settings)
-    debug('settings', settings)
 
     // more detailed validation
     if (settings.relation===Denormalize.RELATION_MANY_TO_ONE) {
@@ -579,7 +580,6 @@ export const Denormalize = class Denormalize {
     } else {
       // valueForManyCache
       jsonModifier = `{"$set": {"${cacheName}": { "${Denormalize.CACHE_INSTANCE_FIELD}": ${JSON.stringify(valueForManyCache)} } } }`
-      debug('valueForManyCache jsonModifier', jsonModifier)
     }
     const modifier = JSON.parse(jsonModifier)
 
@@ -692,60 +692,70 @@ export const Denormalize = class Denormalize {
   static _setReferenceAndReloadCache(options = {}) {
     check(options._id, String)
     check(options.collection, Mongo.Collection)
+    check(options.referenceProperty, String)
     check(options.relatedCollection, Mongo.Collection)
-    check(options.relatedReferenceProperty, String)
     // set valueForReferenceOne or valueForReferenceMany "null" to set to empty
     //  p.e. like ``valueForReferenceOne: referenceId || null``
     check(options.valueForReferenceOne, Match.Maybe(String))
     check(options.valueForReferenceMany, Match.Maybe([String]))
     if (_.isUndefined(options.valueForReferenceOne) && _.isUndefined(options.valueForReferenceMany))
       throw new Error('you need to either set option "valueForReferenceOne" or "valueForReferenceMany"')
-    const { _id, collection, relatedCollection, relatedReferenceProperty, valueForReferenceOne, valueForReferenceMany } = options
+    const { _id, collection, relatedCollection, referenceProperty, valueForReferenceOne, valueForReferenceMany } = options
+    debug(`set references and update cache for id "${_id}" in collection "${collection._name}"`)
 
     // prepare new doc
-    const cacheName = Denormalize._getCacheNameFromReferenceKey(relatedReferenceProperty)
+    const cacheName = Denormalize._getCacheNameFromReferenceKey(referenceProperty)
     let doc = collection.findOne(_id)
     if (!_.isUndefined(valueForReferenceOne)) {
       // valueForReferenceOne
       if (valueForReferenceOne!==null) {
-        doc[relatedReferenceProperty] = valueForReferenceOne
+        doc[referenceProperty] = valueForReferenceOne
         const relatedDoc = relatedCollection.findOne(valueForReferenceOne)
         if (!relatedDoc) {
           // validate consistency
           throw new Error(`you are referencing to a doc with id "${_id}" in collection "${relatedCollection._name}", but the doc does NOT exist - there is something wrong here`)
         }
         doc[cacheName] = relatedDoc
+
+        // update doc
+        Denormalize._updateDocInCollection({
+          doc,
+          collection,
+        })
       } else {
-        debug(`unsetting reference-props "${relatedReferenceProperty}" and "${cacheName}" to undefined`)
-        // THIS is NOT fully TESTED
-        // = null (remove id)
-        // delete doc[relatedReferenceProperty]
-        // delete doc[cacheName]
-        doc[relatedReferenceProperty] = undefined
-        doc[cacheName] = undefined
+        debug(`unsetting reference-props "${referenceProperty}" and "${cacheName}" to undefined`)
+        // UNSET referenceProperty and cacheName
+        //  in order to completely remove it
+        collection.direct.update(doc._id,
+          JSON.parse(`{ "$unset": { "${referenceProperty}": "", "${cacheName}": "" } }`)
+        )
       }
     } else {
       // valueForReferenceMany
-      doc = Denormalize._ensureArrayProperty(doc, relatedReferenceProperty)
+      doc = Denormalize._ensureArrayProperty(doc, referenceProperty)
       doc = Denormalize._ensureCacheInstancesProperty({ doc, cacheName })
-      doc[relatedReferenceProperty] = valueForReferenceMany
       const newCache = []
-      for (const id of valueForReferenceMany) {
-        const relatedDoc = relatedCollection.findOne(id)
-        if (!relatedDoc) {
-          // validate consistency
-          throw new Error(`you are referencing to a doc with id "${_id}" in collection "${relatedCollection._name}", but the doc does NOT exist - there is something wrong here`)
+      if (valueForReferenceMany!==null) {
+        doc[referenceProperty] = valueForReferenceMany
+        // simply store an empty cache when no fields are assigned
+        for (const id of valueForReferenceMany) {
+          const relatedDoc = relatedCollection.findOne(id)
+          if (!relatedDoc) {
+            // validate consistency
+            throw new Error(`you are referencing to a doc with id "${_id}" in collection "${relatedCollection._name}", but the doc does NOT exist - there is something wrong here`)
+          }
+          newCache.push(relatedDoc)
         }
-        newCache.push(relatedDoc)
+      } else {
+        doc[referenceProperty] = []
       }
       doc[cacheName][Denormalize.CACHE_INSTANCE_FIELD] = newCache
+      // update doc
+      Denormalize._updateDocInCollection({
+        doc,
+        collection,
+      })
     }
-
-    // update doc
-    Denormalize._updateDocInCollection({
-      doc,
-      collection,
-    })
   }
 
   /**
@@ -762,23 +772,23 @@ export const Denormalize = class Denormalize {
       removeId: { type: String },
       collection: { type: Mongo.Collection },
       relatedCollection: { type: Mongo.Collection },
-      relatedReferenceProperty: { type: String },
+      referenceProperty: { type: String },
     }).validate(options)
-
     // we are in a MANY relationship
-    const { _id, removeId, collection, relatedCollection, relatedReferenceProperty } = options
+    const { _id, removeId, collection, relatedCollection, referenceProperty } = options
+    debug(`remove id "${removeId}" from referenceProperty "${referenceProperty}" in collection "${collection._name}"`)
 
     let doc = collection.findOne(_id)
     if (!doc) {
       throw new Error(`you are trying to remove a reference from doc "${_id}", but the doc does NOT exist!`)
     }
-    doc = Denormalize._ensureArrayProperty(doc, relatedReferenceProperty)
+    doc = Denormalize._ensureArrayProperty(doc, referenceProperty)
     Denormalize._setReferenceAndReloadCache({
       _id,
       collection,
       relatedCollection,
-      relatedReferenceProperty,
-      valueForReferenceMany: _.without(doc[relatedReferenceProperty], removeId),
+      referenceProperty,
+      valueForReferenceMany: _.without(doc[referenceProperty], removeId),
     })
   }
 
@@ -810,7 +820,7 @@ export const Denormalize = class Denormalize {
       _id,
       collection,
       relatedCollection,
-      relatedReferenceProperty,
+      referenceProperty: relatedReferenceProperty,
       valueForReferenceMany: _.union(doc[relatedReferenceProperty], [addId]),
     })
   }
@@ -865,7 +875,26 @@ export const Denormalize = class Denormalize {
       })
 
     } else if (relation===Denormalize.RELATION_MANY_TO_ONE) {
-      // TODO
+      // "RELATION_MANY_TO_ONE"
+      //  example: MANY "comments" can belong to ONE post
+      //  WE ARE IN THE "COMMENTS"-COLLECTION
+      // TODOD
+      if (doc[referenceProperty]) {
+        let valueForOneCache = relatedCollection.findOne(doc[referenceProperty])
+        // TODOD
+        Denormalize._updateCacheInCollection({
+          collection,
+          referenceProperty,
+          valueForOneCache,
+          _id: doc._id,
+        })
+      } else if(doc[cacheName]) {
+        doc[cacheName] = undefined
+        Denormalize._updateDocInCollection({
+          doc,
+          collection
+        })
+      }
 
     } else {
       // TODO

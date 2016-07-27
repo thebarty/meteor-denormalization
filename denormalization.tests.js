@@ -691,25 +691,10 @@ if (Meteor.isServer) {
 
       // lets update RELATION_ONE_TO_MANY references - will cache be synced?
       // .. ADD a field
-      // .. REMOVE a field
-      // .. remove ALL fields
       // INITIAL Data:
       //  post1: comment1
       //  post2: comment2, comment3
       Posts.update(fixtures.postId1, { $set: { commentIds: [fixtures.commentId1, fixtures.commentId3] } })
-
-      // check comments
-      const comment1 = Comments.findOne(fixtures.commentId1)
-      const comment2 = Comments.findOne(fixtures.commentId2)
-      const comment3 = Comments.findOne(fixtures.commentId3)
-      expect(comment1.comment).to.equal('comment 1')
-      expect(comment1.postId).to.equal(fixtures.postId1)
-      expect(comment1.postCache.post).to.equal('post 1')
-      // expect comment3 to be assigned to post1
-      expect(comment3.comment).to.equal('comment 3')
-      expect(comment3.postId).to.equal(fixtures.postId1)
-      expect(comment3.postCache.post).to.equal('post 1')
-
       // check posts
       const post1 = Posts.findOne(fixtures.postId1)
       const post2 = Posts.findOne(fixtures.postId2)
@@ -727,23 +712,67 @@ if (Meteor.isServer) {
       expect(post2.commentCache.instances.length).to.equal(1)
       expect(post2.commentCache.instances[0].comment).to.equal('comment 2')
 
+      // check comments
+      const comment1 = Comments.findOne(fixtures.commentId1)
+      const comment2 = Comments.findOne(fixtures.commentId2)
+      const comment3 = Comments.findOne(fixtures.commentId3)
+      expect(comment1.postId).to.equal(fixtures.postId1)
+      expect(comment1.postCache.post).to.equal('post 1')
+      // expect comment2 to have post removed
+      expect(comment2.postId).to.equal(fixtures.postId2)
+      expect(comment2.postCache.post).to.equal('post 2')
+      // expect comment3 to be assigned to post1
+      expect(comment3.postId).to.equal(fixtures.postId1)
+      expect(comment3.postCache.post).to.equal('post 1')
+
       // lets update a comment - will post be synced?
       Posts.update(fixtures.postId1, { $set: { post: 'post 1 NEW TEXT' } })
     })
 
-    xit('Example 1 - Scenario 5 works: Updates are synced correctly when reference is removed in a RELATION_ONE_TO_MANY', function () {
+    it('Example 1 - Scenario 5 works: Updates are synced correctly when reference is set to empty array in a RELATION_ONE_TO_MANY', function () {
       // Load fixtures
       const fixtures = createExample1Fixtures()
 
-      // lets update and remove a reference - will cache be synced?
-      // Comments.update(fixtures.commentId1, { $unset: { postId: "" } })
+      // lets update RELATION_ONE_TO_MANY references - will cache be synced?
+      // .. ADD a field
+      // INITIAL Data:
+      //  post1: comment1
+      //  post2: comment2, comment3
+      Posts.update(fixtures.postId1, { $set: { commentIds: [] } })
+      // check posts
+      const post1 = Posts.findOne(fixtures.postId1)
+      const post2 = Posts.findOne(fixtures.postId2)
+      // expect cache to be updated
+      expect(post1.commentIds).to.deep.equal([])
+      expect(post1.commentCache.instances.length).to.equal(0)
 
-      // // posts - got comment removed from post?
-      // const post1 = Posts.findOne(fixtures.postId1)
-      // expect(post1.authorId).to.equal(fixtures.authorId1)
-      // expect(post1.authorCache.name).to.equal('author 1')
-      // expect(post1.commentIds).to.deep.equal([])
-      // expect(post1.commentCache.instances.length).to.equal(0)
+      // check comments
+      const comment1 = Comments.findOne(fixtures.commentId1)
+      expect(comment1.postId).to.be.undefined
+      expect(comment1.postCache).to.be.undefined
+    })
+
+    it('Example 1 - Scenario 6 works: Updates are synced correctly when reference is unset in a RELATION_ONE_TO_MANY', function () {
+      // Load fixtures
+      const fixtures = createExample1Fixtures()
+
+      // lets update RELATION_ONE_TO_MANY references - will cache be synced?
+      // .. ADD a field
+      // INITIAL Data:
+      //  post1: comment1
+      //  post2: comment2, comment3
+      Posts.update(fixtures.postId1, { $unset: { commentIds: "" } })
+      // check posts
+      const post1 = Posts.findOne(fixtures.postId1)
+      const post2 = Posts.findOne(fixtures.postId2)
+      // expect cache to be updated
+      expect(post1.commentIds).to.deep.equal([])
+      expect(post1.commentCache.instances.length).to.equal(0)
+
+      // check comments
+      const comment1 = Comments.findOne(fixtures.commentId1)
+      expect(comment1.postId).to.be.undefined
+      expect(comment1.postCache).to.be.undefined
     })
 
     xit('Example 1 - Scenario 5 works: Removes are synced correctly', function () {
