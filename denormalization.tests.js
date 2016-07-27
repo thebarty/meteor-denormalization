@@ -37,9 +37,9 @@ const aCollection = new Mongo.Collection('acollection')
 //       the full-denormalized instance of the related Comment.
 //
 // FIXTURES
-const PostsSimple = new Mongo.Collection('postssimple')
-const CommentsSimple = new Mongo.Collection('commentssimple')
-const AuthorsSimple =  new Mongo.Collection('authorssimple')
+const Posts = new Mongo.Collection('posts')
+const Comments = new Mongo.Collection('comments')
+const Authors =  new Mongo.Collection('authors')
 
 const UpdateCreatedSchema = new SimpleSchema({
   // CREATED && UPDATED
@@ -63,7 +63,7 @@ const UpdateCreatedSchema = new SimpleSchema({
   },
 })
 
-AuthorsSimple.attachDenormalizedSchema([
+Authors.attachDenormalizedSchema([
   // MERGE 2 Schemas is supported
   {
     name: {
@@ -78,7 +78,7 @@ AuthorsSimple.attachDenormalizedSchema([
       optional: true,
       denormalize: {
         relation: Denormalize.RELATION_ONE_TO_MANY,
-        relatedCollection: PostsSimple,
+        relatedCollection: Posts,
         relatedReference: 'authorId',
         pickAttributes: ['post'],
         extendCacheFieldBy: {
@@ -92,7 +92,7 @@ AuthorsSimple.attachDenormalizedSchema([
   UpdateCreatedSchema
 ])
 
-CommentsSimple.attachDenormalizedSchema({
+Comments.attachDenormalizedSchema({
   comment: {
     type: String,
   },
@@ -107,7 +107,7 @@ CommentsSimple.attachDenormalizedSchema({
     optional: true,
     denormalize: {
       relation: Denormalize.RELATION_MANY_TO_ONE,
-      relatedCollection: PostsSimple,
+      relatedCollection: Posts,
       relatedReference: 'commentIds',
       pickAttributes: ['post'],
       extendCacheFieldBy: {
@@ -125,7 +125,7 @@ CommentsSimple.attachDenormalizedSchema({
   // "postCache"-property will be generated
 })
 
-PostsSimple.attachDenormalizedSchema({
+Posts.attachDenormalizedSchema({
   post: {
     type: String,
   },
@@ -138,7 +138,7 @@ PostsSimple.attachDenormalizedSchema({
     optional: true,
     denormalize: {
       relation: Denormalize.RELATION_ONE_TO_MANY,
-      relatedCollection: CommentsSimple,
+      relatedCollection: Comments,
       relatedReference: 'postId',
       pickAttributes: ['comment'],
     },
@@ -153,13 +153,134 @@ PostsSimple.attachDenormalizedSchema({
     optional: false,  // mandatory
     denormalize: {
       relation: Denormalize.RELATION_MANY_TO_ONE,
-      relatedCollection: AuthorsSimple,
+      relatedCollection: Authors,
       relatedReference: 'postIds',
       pickAttributes: ['name'],
     },
   },
   // "authorCache"-property will be generated
 })
+
+/** Fixtures Method that we can call from our tests,
+ in order to set up some basic-test-data. */
+const createExample1Fixtures = function() {
+  // Init
+  Authors.remove({})
+  Comments.remove({})
+  Posts.remove({})
+
+  const commentId1 = Comments.insert({
+    comment: 'comment 1',
+  })
+  const commentId2 = Comments.insert({
+    comment: 'comment 2',
+  })
+  const commentId3 = Comments.insert({
+    comment: 'comment 3',
+  })
+  const commentId4 = Comments.insert({
+    comment: 'comment 4',
+  })
+  const authorId1 = Authors.insert({
+    name: 'author 1',
+  })
+  const authorId2 = Authors.insert({
+    name: 'author 2',
+  })
+  const authorId3 = Authors.insert({
+    name: 'author 3',
+  })
+  const postId1 = Posts.insert({
+    authorId: authorId1,
+    post: 'post 1',
+    commentIds: [
+      commentId1,
+      commentId2,
+    ]
+  })
+  const postId2 = Posts.insert({
+    authorId: authorId1,
+    post: 'post 2',
+    commentIds: [
+      commentId2,
+      commentId3,
+    ]
+  })
+  const postId3 = Posts.insert({
+    authorId: authorId2,
+    post: 'post 3',
+    commentIds: [
+    ]
+  })
+  const postId4 = Posts.insert({
+    authorId: authorId2,
+    post: 'post 4',
+    commentIds: [
+      commentId4,
+    ]
+  })
+
+  // Load fixtures
+  const comment1 = Comments.findOne(commentId1)
+  const comment2 = Comments.findOne(commentId2)
+  const comment3 = Comments.findOne(commentId3)
+  const author1 = Authors.findOne(authorId1)
+  const author2 = Authors.findOne(authorId2)
+  const author3 = Authors.findOne(authorId3)
+  const post1 = Posts.findOne(postId1)
+  const post2 = Posts.findOne(postId2)
+
+  // comments
+  expect(comment1.comment).to.equal('comment 1')
+  expect(comment1.postId).to.equal(postId1)
+  expect(comment1.postCache.post).to.equal('post 1')
+
+  expect(comment2.comment).to.equal('comment 2')
+  expect(comment2.postId).to.equal(postId2)
+  expect(comment2.postCache.post).to.equal('post 2')
+
+  // authors
+  expect(author1.postIds).to.deep.equal([postId1, postId2])
+  expect(author1.postCache.instances.length).to.equal(2)
+  expect(author1.postCache.instances[0].post).to.equal('post 1')
+  expect(author1.postCache.instances[1].post).to.equal('post 2')
+
+  expect(author2.postIds).to.deep.equal([postId3, postId4])
+  expect(author2.postCache.instances.length).to.equal(2)
+  expect(author2.postCache.instances[0].post).to.equal('post 3')
+  expect(author2.postCache.instances[1].post).to.equal('post 4')
+
+  expect(author3.postIds).to.be.undefined
+  expect(author3.postCache).to.be.undefined
+
+  // posts
+  expect(post1.authorId).to.equal(authorId1)
+  expect(post1.authorCache.name).to.equal('author 1')
+  expect(post1.commentIds).to.deep.equal([commentId1])
+  expect(post1.commentCache.instances.length).to.equal(1)
+  expect(post1.commentCache.instances[0].comment).to.equal('comment 1')
+
+  expect(post2.authorId).to.equal(authorId1)
+  expect(post2.authorCache.name).to.equal('author 1')
+  expect(post2.commentIds).to.deep.equal([commentId2, commentId3])
+  expect(post2.commentCache.instances.length).to.equal(2)
+  expect(post2.commentCache.instances[0].comment).to.equal('comment 2')
+  expect(post2.commentCache.instances[1].comment).to.equal('comment 3')
+
+  return {
+    commentId1,
+    commentId2,
+    commentId3,
+    commentId4,
+    authorId1,
+    authorId2,
+    authorId3,
+    postId1,
+    postId2,
+    postId3,
+    postId4,
+  }
+}
 
 // TESTS
 if (Meteor.isServer) {
@@ -221,7 +342,7 @@ if (Meteor.isServer) {
             optional: true,
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
-              relatedCollection: CommentsSimple,
+              relatedCollection: Comments,
               relatedReference: 'postId',
               pickAttributes: ['post'],
               extendCacheFieldBy: {
@@ -249,7 +370,7 @@ if (Meteor.isServer) {
             optional: true,
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
-              relatedCollection: CommentsSimple,
+              relatedCollection: Comments,
               relatedReference: 'postId',
               pickAttributes: ['post'],
               extendCacheFieldBy: {
@@ -278,7 +399,7 @@ if (Meteor.isServer) {
             optional: true,
             denormalize: {
               relation: Denormalize.RELATION_ONE_TO_MANY,
-              relatedCollection: PostsSimple,
+              relatedCollection: Posts,
               relatedReference: 'authorId',
               pickAttributes: ['post'],
               extendCacheFieldBy: {
@@ -302,7 +423,7 @@ if (Meteor.isServer) {
           optional: true,
           denormalize: {
             relation: Denormalize.RELATION_MANY_TO_ONE,
-            relatedCollection: CommentsSimple,
+            relatedCollection: Comments,
             relatedReference: 'postIdssss',
           },
         },
@@ -317,7 +438,7 @@ if (Meteor.isServer) {
           optional: true,
           denormalize: {
             relation: Denormalize.RELATION_MANY_TO_ONE,
-            relatedCollection: CommentsSimple,
+            relatedCollection: Comments,
             relatedReference: 'postId',
           },
         },
@@ -329,29 +450,29 @@ if (Meteor.isServer) {
 
     it('Example 1 - Scenario 1 works', function () {
       // Init
-      AuthorsSimple.remove({})
-      CommentsSimple.remove({})
-      PostsSimple.remove({})
+      Authors.remove({})
+      Comments.remove({})
+      Posts.remove({})
 
       // Scenario
       // 1) insert a new post
       // 2) insert a new comment and assign it to post
-      const authorId = AuthorsSimple.insert({
+      const authorId = Authors.insert({
         name: 'author1',
       })
-      const postId = PostsSimple.insert({
+      const postId = Posts.insert({
         authorId,
         post: 'post 1',
       })
-      const commentId = CommentsSimple.insert({
+      const commentId = Comments.insert({
         comment: 'comment 1',
         postId: postId,
       })
 
       // Test: did it work?
-      const author = AuthorsSimple.findOne(authorId)
-      const post = PostsSimple.findOne(postId)
-      const comment = CommentsSimple.findOne(commentId)
+      const author = Authors.findOne(authorId)
+      const post = Posts.findOne(postId)
+      const comment = Comments.findOne(commentId)
 
       // authors
       expect(author.postIds).to.deep.equal([postId])
@@ -372,21 +493,21 @@ if (Meteor.isServer) {
 
     it('Example 1 - Scenario 2 works ', function () {
       // Init
-      AuthorsSimple.remove({})
-      CommentsSimple.remove({})
-      PostsSimple.remove({})
+      Authors.remove({})
+      Comments.remove({})
+      Posts.remove({})
 
       // Scenario
       // 1) insert a comment
       // 2) insert a author
       // 3) insert a post
-      const commentId = CommentsSimple.insert({
+      const commentId = Comments.insert({
         comment: 'comment 1',
       })
-      const authorId = AuthorsSimple.insert({
+      const authorId = Authors.insert({
         name: 'author1',
       })
-      const postId = PostsSimple.insert({
+      const postId = Posts.insert({
         authorId,
         post: 'post 1',
         commentIds: [
@@ -395,9 +516,9 @@ if (Meteor.isServer) {
       })
 
       // Test: did it work?
-      const author = AuthorsSimple.findOne(authorId)
-      const post = PostsSimple.findOne(postId)
-      const comment = CommentsSimple.findOne(commentId)
+      const author = Authors.findOne(authorId)
+      const post = Posts.findOne(postId)
+      const comment = Comments.findOne(commentId)
 
       // authors
       expect(author.postIds).to.deep.equal([postId])
@@ -418,21 +539,21 @@ if (Meteor.isServer) {
 
     it('Example 1 - Scenario 3 works. Old references are removed', function () {
       // Init
-      AuthorsSimple.remove({})
-      CommentsSimple.remove({})
-      PostsSimple.remove({})
+      Authors.remove({})
+      Comments.remove({})
+      Posts.remove({})
 
       // Scenario
       // 1) insert a comment
       // 2) insert a author
       // 3) insert a post
-      const commentId = CommentsSimple.insert({
+      const commentId = Comments.insert({
         comment: 'comment 1',
       })
-      const authorId = AuthorsSimple.insert({
+      const authorId = Authors.insert({
         name: 'author1',
       })
-      const postId = PostsSimple.insert({
+      const postId = Posts.insert({
         authorId,
         post: 'post 1',
         commentIds: [
@@ -442,7 +563,7 @@ if (Meteor.isServer) {
       // this is exacly the scenario 2.
       //  what if we now create a second post2
       //  and assign the same comment (that belongs to post1) to it?
-      const postId2 = PostsSimple.insert({
+      const postId2 = Posts.insert({
         authorId,
         post: 'post 2',
         commentIds: [
@@ -451,10 +572,10 @@ if (Meteor.isServer) {
       })
 
       // Test: did it work?
-      const author = AuthorsSimple.findOne(authorId)
-      const post = PostsSimple.findOne(postId)
-      const post2 = PostsSimple.findOne(postId2)
-      const comment = CommentsSimple.findOne(commentId)
+      const author = Authors.findOne(authorId)
+      const post = Posts.findOne(postId)
+      const post2 = Posts.findOne(postId2)
+      const comment = Comments.findOne(commentId)
 
       // authors
       expect(author.postIds).to.deep.equal([postId, postId2])
@@ -479,6 +600,74 @@ if (Meteor.isServer) {
       expect(post2.commentIds).to.deep.equal([commentId])
       expect(post2.commentCache.instances.length).to.equal(1)
       expect(post2.commentCache.instances[0].comment).to.equal('comment 1')
+    })
+
+    it('Example 1 - Scenario 4 works: Updates are synced correctly', function () {
+      // Load fixtures
+      const fixtures = createExample1Fixtures()
+
+      // Load fixtures
+      const comment1 = Comments.findOne(fixtures.commentId1)
+      const comment2 = Comments.findOne(fixtures.commentId2)
+      const comment3 = Comments.findOne(fixtures.commentId3)
+      const author1 = Authors.findOne(fixtures.authorId1)
+      const author2 = Authors.findOne(fixtures.authorId2)
+      const author3 = Authors.findOne(fixtures.authorId3)
+      const post1 = Posts.findOne(fixtures.postId1)
+      const post2 = Posts.findOne(fixtures.postId2)
+
+      // lets update references - will cache be synced?
+      Comments.update(fixtures.commentId1, { $set: { postId: fixtures.postId2 } })
+
+      // got post1 updated? (has comment been removed?)
+      const post1_2 = Posts.findOne(fixtures.postId1)
+      expect(post1_2.authorId).to.equal(fixtures.authorId1)
+      expect(post1_2.authorCache.name).to.equal('author 1')
+      expect(post1_2.commentIds).to.deep.equal([])
+      expect(post1_2.commentCache.instances.length).to.equal(0)
+      // got post2 updated? (has comment been removed?)
+      const post2_2 = Posts.findOne(fixtures.postId2)
+      console.log('post2_2 AFTER UPDATE')
+      console.log(post2_2)
+      expect(post2_2.authorId).to.equal(fixtures.authorId1)
+      expect(post2_2.authorCache.name).to.equal('author 1')
+      expect(post2_2.commentIds).to.deep.equal([fixtures.commentId2, fixtures.commentId3, fixtures.commentId1])
+      expect(post2_2.commentCache.instances.length).to.equal(3)
+      expect(post2_2.commentCache.instances[0].comment).to.equal('comment 2')
+      expect(post2_2.commentCache.instances[1].comment).to.equal('comment 3')
+      expect(post2_2.commentCache.instances[2].comment).to.equal('comment 1')
+
+      // lets update a comment - will post be synced?
+      Comments.update(fixtures.commentId2, { $set: { comment: 'comment 2 NEW' } })
+      // got post updated?
+      const post2_3 = Posts.findOne(fixtures.postId2)
+      expect(post2_3.authorId).to.equal(fixtures.authorId1)
+      expect(post2_3.authorCache.name).to.equal('author 1')
+      expect(post2_3.commentIds).to.deep.equal([fixtures.commentId2, fixtures.commentId3, fixtures.commentId1])
+      expect(post2_3.commentCache.instances.length).to.equal(3)
+      expect(post2_3.commentCache.instances[0].comment).to.equal('comment 2 NEW')
+      expect(post2_2.commentCache.instances[1].comment).to.equal('comment 3')
+      expect(post2_2.commentCache.instances[2].comment).to.equal('comment 1')
+    })
+
+    it('Example 1 - Scenario 5 works: Updates are synced correctly when reference is removed', function () {
+      // Load fixtures
+      const fixtures = createExample1Fixtures()
+
+      // lets update and remove a reference - will cache be synced?
+      Comments.update(fixtures.commentId1, { $unset: { postId: "" } })
+
+      // posts - got comment removed from post?
+      const post1 = Posts.findOne(fixtures.postId1)
+      expect(post1.authorId).to.equal(fixtures.authorId1)
+      expect(post1.authorCache.name).to.equal('author 1')
+      expect(post1.commentIds).to.deep.equal([])
+      expect(post1.commentCache.instances.length).to.equal(0)
+    })
+
+    xit('Example 1 - Scenario 5 works: Removes are synced correctly', function () {
+      // Init
+      createExample1Fixtures()
     })
 
     it('_ensureArrayProperty works as expected', function () {
@@ -620,7 +809,7 @@ PostsEnhanced.Schema = new SimpleSchema({
     optional: false,
     denormalize: {
       relation: RELATION_ONE_TO_MANY,
-      relatedCollection: PostsSimple,
+      relatedCollection: Posts,
       pickAttributes: ['post'],
       extendCacheFieldBy: {
         // MERGE INTO FLAT

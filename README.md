@@ -157,7 +157,10 @@ I'd love to hear your feedback on this and get you in the boat.
  * How can we improve the code?
  * How can we make this as stable, fast, scalable and secure as possible?
  * What (edge) use-cases are we NOT covering yet, but should be?
- * How about adding transaction support? maybe thru this package https://github.com/JackAdams/meteor-transactions?
+
+## Ideas for future releases
+ * Add support to specify "watchFields". CollectionHooks will then only run on ``update``-commands, if a field within "watchFields" was has actually changed - otherwise the related collection will NOT be updated, because it might not be interested in the data-change at all. If no "watchFields" are specified: hooks will ALWAYS run. *In high-performance environments this feature could be used to decrease writes* 
+ * Add transaction support for cases, where an error (p.e. an validation-error) occurs during the denormalisation-chain and it is NOT possible to sync data for any reasons. In this case that related collection should stay in-sync and simply thru an Error to let the user know that the operation is NOT possible. We could use this package https://github.com/JackAdams/meteor-transactions?
 
 ## How to contribute to this package
 Lets make this perfect and collaborate. This is how to set up your local testing environment:
@@ -184,4 +187,4 @@ Lets make this perfect and collaborate. This is how to set up your local testing
 
 ## Other related packages
 * https://github.com/peerlibrary/meteor-peerdb: great all-in-one solution, but it is NOT compatible with SimpleSchema.
-* https://github.com/jeanfredrik/meteor-denormalize: Good api, but does not support all relations that this package does.
+* https://github.com/jeanfredrik/meteor-denormalize: Good api, but does not support all relations that this package does. This package has been a great inspiration though.
