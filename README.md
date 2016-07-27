@@ -12,7 +12,7 @@
 
 *thebarty:denormalization*
 
-This package makes denormalization easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "one-to-one"-, "one-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box.
+This package makes denormalization of your Mongo collections easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "one-to-one"-, "one-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box.
 
 The package will then automatically denormalize the data between the specified collections and keep them in sync on ``insert``-, ``update``- and ``remove``-commands. 
 
@@ -27,19 +27,21 @@ It is designed to be **compatible the aldeed:ecosystem** ([SimpleSchema](https:/
 
 - [Installation](#installation)
 - [How does it work? An Introduction](#how-does-it-work-an-introduction)
-  - [referenceProperties](#referenceproperties)
-  - [cacheProperties](#cacheproperties)
+  - ["referenceProperties": writable foreign-key stores](#referenceproperties-writable-foreign-key-stores)
+  - ["cacheProperties": read-only full-instance stores](#cacheproperties-read-only-full-instance-stores)
   - [A first example](#a-first-example)
-- [Basic Usage](#basic-usage)
-  - [ONE-TO-ONE Relationships](#one-to-many-relationships)
-  - [ONE-TO-MANY Relationships](#one-to-many-relationships)
-  - [MANY-TO-ONE Relationships](#many-to-one-relationships)
-  - [MANY-TO-MANY Relationships.](#many-to-many-relationships)
+- [Supported Relationships](#supported-relationships)
+  - [ONE-TO-ONE relationships](#one-to-one-relationships)
+  - [ONE-TO-MANY relationships](#one-to-many-relationships)
+  - [MANY-TO-ONE relationships](#many-to-one-relationships)
+  - [MANY-TO-MANY relationships](#many-to-many-relationships)
+  - [More examples? Check out the .test-files](#more-examples-check-out-the-test-files)
 - [Constribute to this project](#constribute-to-this-project)
   - [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
+  - [Ideas for future releases](#ideas-for-future-releases)
   - [How to contribute to this package](#how-to-contribute-to-this-package)
 - [Background Infos](#background-infos)
-  - [Why denormalize?](#why-denormalize)
+  - [Why denormalize? Upsides](#why-denormalize-upsides)
   - [Resources](#resources)
   - [Other related packages](#other-related-packages)
 
