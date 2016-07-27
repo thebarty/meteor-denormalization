@@ -109,13 +109,6 @@ export const Denormalize = class Denormalize {
 
       const cacheName = Denormalize._getCacheNameFromReferenceKey(keyInSchema)
 
-      // add settings to reference-property
-      if (relation===Denormalize.RELATION_MANY_TO_ONE) {
-        schema[keyInSchema]['type'] = String
-      } else if (relation===Denormalize.RELATION_ONE_TO_MANY) {
-        schema[keyInSchema]['type'] = [String]
-      }
-
       // Build the CACHE-PROPERTY
       const cacheProperty = {}
       // settings that CAN be overwritten by "extendCacheFieldBy"
@@ -218,15 +211,14 @@ export const Denormalize = class Denormalize {
           const referenceIdBefore = this.previous[referenceProperty]
           const referenceIdHasChanged = _.contains(fieldNames, referenceProperty)
 
-          // was referenceId-field updated?
+          // was referenceId updated?
           if(referenceIdHasChanged) {
-            // edit collection: (p.e. "comment")
+            // ---------------------------
+            // edit COLLECTION: (p.e. "comment")
             //  * did postId change or was it removed? If yes: refill the
             //    cacheProperty by loading from related collection. If it was removed:
             //    set "postId: null" && "postCache: null"
             //    (p.e. fill "postCache" by new "postId")
-            // * reload cache
-            //   this needs to also work when referenceId was removed and is undefined
             Denormalize._setReferenceAndReloadCache({
               collection,
               referenceProperty,
@@ -235,15 +227,15 @@ export const Denormalize = class Denormalize {
               valueForReferenceOne: referenceId || null,
             })
 
-            // edit relatedCollection (p.e. post):
+            // ---------------------------
+            // edit RELATED-COLLECTION (p.e. post):
             //  * sync to related collection (relatedDoc) if we have a reference
             //  * If "collection._id" was remove, remove it from "relatedCollection"
             //  * update lost reference (did collection.postId change or was it removed? If yes: in the old referenceId: Remove commentId from commentIds (including commentCache) and in NEW referneceID: add commentId and commentCache.)
             //      reload the chached-version in relatedCollection.
-            //  * Whenever a standard-property of "collection" has changed:
-            //    sync related collection
 
-            // sync to related collection (relatedDoc) if we have a reference
+            // sync this doc to references in related collection (relatedDoc)
+            // (if we have a reference)
             if (referenceId) {
               Denormalize._addIdToReference({
                 _id: referenceId,
@@ -270,7 +262,8 @@ export const Denormalize = class Denormalize {
               })
             }
           } else {
-            // the data of the doc has change - simply update its references
+            // sync related collection,
+            // whenever a standard-property of "collection" has changed
             Denormalize._refreshDenormalization({
               _id: referenceId,
               collection: relatedCollection,
@@ -305,7 +298,8 @@ export const Denormalize = class Denormalize {
           const docId = this._id
           const referenceIds = doc[keyInSchema]
           if (referenceIds) {
-            // edit collection (p.e. posts):
+            // ---------------------------
+            // edit COLLECTION (p.e. posts):
             //  * fill the cacheProperty by loading from related collection
             //  (p.e. "commentCache[Denormalize.CACHE_INSTANCE_FIELD]" by "commentIds")
             //
@@ -316,7 +310,7 @@ export const Denormalize = class Denormalize {
             for (const referenceId of referenceIds) {
               const docInRelatedCollection = relatedCollection.findOne(referenceId)
               if (!docInRelatedCollection) {
-                throw new Error(`data inconsistency detected - a doc with the given id "${referenceId}" does NOT exist in collection "${relatedCollection}._name"`)
+                throw new Error(`data inconsistency detected - a doc with the given id "${referenceId}" does NOT exist in collection "${relatedCollection._name}"`)
               }
               newCache.push(docInRelatedCollection)
             }
@@ -327,11 +321,15 @@ export const Denormalize = class Denormalize {
               referenceProperty: keyInSchema,
             })
 
-            // edit relatedCollection (p.e. comments - "a post was inserted, maybe with comments attached")
+            // ---------------------------
+            // edit RELATED-COLLECTION (p.e. comments - "a post was inserted,
+            //  maybe with comments attached")
+            //
             // Loop comments (stored as referenceIds in Posts) and edit each like this:
             //  * add post._id to comment.postId
             //  * add post-instance to comment.postCache
-            //  * if before the comment was assigned to a different Post,
+            //  * cleanup abandoned relations:
+            //    if before the comment was assigned to a different Post,
             //    then remove the current comment from the old-referenced Post.
             const cacheNameRelated = Denormalize._getCacheNameFromReferenceKey(relatedReferenceProperty)
             for (const referenceId of referenceIds) {
@@ -346,6 +344,7 @@ export const Denormalize = class Denormalize {
                 collection: relatedCollection,
               })
 
+              // cleanup abandoned relations:
               // if before the comment (relatedDoc) was assigned to a different Post (collection),
               //  then remove the current comment (referenceId) from the old-referenced Post (collection).
               if (docIdReferencedBefore
@@ -382,9 +381,10 @@ export const Denormalize = class Denormalize {
           const referenceIdsBefore = this.previous[keyInSchema]
           const referenceIdsHaveChanged = _.contains(fieldNames, keyInSchema)
 
-          // what referenceId-field was updated?
+          // were referenceIds updated?
           if(referenceIdsHaveChanged) {
-            // edit collection (p.e. posts):
+            // ---------------------------
+            // edit COLLECTION (p.e. posts):
             // * reload cache:
             //   were comments added or removed? yes: refill the cacheProperty
             //   by loading from related collection. If it was totally removed:
@@ -398,14 +398,8 @@ export const Denormalize = class Denormalize {
               valueForReferenceMany: referenceIds || null,
             })
 
-            // edit relatedCollection (p.e. comment):
-            //  * sync to related collection (relatedDoc) if we have a reference
-            //  * If "collection._id" was remove, remove it from "relatedCollection"
-            //  * update lost reference (did collection.postId change or was it removed? If yes: in the old referenceId: Remove commentId from commentIds (including commentCache) and in NEW referneceID: add commentId and commentCache.)
-            //      reload the chached-version in relatedCollection.
-            //  * Whenever a standard-property of "collection" has changed:
-            //    sync related collection
-
+            // ---------------------------
+            // edit RELATED-COLLECTION (p.e. comment):
             // sync to related collection (relatedDoc) if we have references
             //  which ids where REMOVED or ADDED to the doc?
             const previousIds = this.previous[referenceProperty] || []
@@ -516,6 +510,14 @@ export const Denormalize = class Denormalize {
     return `${s.strLeft(keyInSchema, 'Id')}Cache`
   }
 
+
+  /**
+   * Validate correct schema-settings
+   *
+   * We choose to NOT set this automatically,
+   * but force the user to do a correct definition.
+   * This way in the end the Schema will be more readable.
+   */
   static _validateDenormalizedSettings(schema, keyInSchema) {
     const settings = schema[keyInSchema]['denormalize'] || {}
     // base-validation
@@ -533,7 +535,13 @@ export const Denormalize = class Denormalize {
     }).validate(settings)
 
     // more detailed validation
+    const existingType = schema[keyInSchema]['type']
     if (settings.relation===Denormalize.RELATION_MANY_TO_ONE) {
+      // valide type
+      // and FORCE ``schema[keyInSchema]['type'] = String`` definition
+      if (existingType!==String) {
+        throw new Error(`"${keyInSchema}.type" needs to be "String" for relation-type "RELATION_MANY_TO_ONE". Please correct it by setting "type: String", or choose a different relation.`)
+      }
       // "relatedReferenceProperty" is mandatory
       if (!Match.test(settings.relatedReferenceProperty, String)) {
         throw new Error(`you need to define "relatedReferenceProperty" when using a "RELATION_MANY_TO_ONE"-relation for property "${keyInSchema}"`)
@@ -544,6 +552,14 @@ export const Denormalize = class Denormalize {
           && !_.contains(settings.relatedCollection.simpleSchema()._schemaKeys, settings.relatedReferenceProperty)) {
         throw new Error(`within keyInSchema "${keyInSchema}" you are referencing relatedReferenceProperty to "${settings.relatedCollection._name}.${settings.relatedReferenceProperty}", BUT this property does NOT exist in collection "${settings.relatedCollection._name}"`)
       }
+    } else if (settings.relation===Denormalize.RELATION_ONE_TO_MANY) {
+      // valide type
+      // FORCE ``schema[keyInSchema]['type'] = [String]``
+      if (!(_.isArray(existingType) && existingType[0]===String)) {
+        throw new Error(`"${keyInSchema}.type" needs to be "[String]" for relation-type "RELATION_ONE_TO_MANY". Please correct it by setting "type: [String]", or choose a different relation.`)
+      }
+    } else {
+      throw new Error(`relation type NOT yet supported!`)
     }
   }
 

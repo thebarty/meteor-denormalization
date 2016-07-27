@@ -48,6 +48,13 @@ Package.onTest(function(api) {
     'practicalmeteor:mocha',
   ])
 
+  api.addFiles([
+      './tests-relation-many-to-many.tests.js',
+      './tests-relation-many-to-one.tests.js',
+      './tests-relation-one-to-many.tests.js',
+      './tests-relation-one-to-one.tests.js',
+  ], 'server')
+
   // Finally add an entry point for tests
   api.mainModule('denormalization.tests.js')
 })

@@ -131,10 +131,10 @@ Posts.attachDenormalizedSchema({
   },
 
   // RELATION: ONE-TO-MANY (SIMPLE FLAT-MODE)
-  //  1 Post can have Many comments.
+  // 1 Post can have Many comments.
   commentIds: {
     // WRITABLE array-field
-    // type: [String],  // will be set
+    type: [String],
     optional: true,
     denormalize: {
       relation: Denormalize.RELATION_ONE_TO_MANY,
@@ -143,13 +143,12 @@ Posts.attachDenormalizedSchema({
       pickAttributes: ['comment'],
     },
   },
-  // "commentCache.instances"-property will be generated
 
   // RELATION: MANY-TO-ONE
-  //  Many Posts can belong to 1 Author.
+  // Many Posts can belong to 1 Author.
   authorId: {
     // WRITABLE array-field
-    // type: String,  // will be set
+    type: String,
     optional: false,  // mandatory
     denormalize: {
       relation: Denormalize.RELATION_MANY_TO_ONE,
@@ -158,7 +157,6 @@ Posts.attachDenormalizedSchema({
       pickAttributes: ['name'],
     },
   },
-  // "authorCache"-property will be generated
 })
 
 /** Fixtures Method that we can call from our tests,
@@ -388,7 +386,7 @@ if (Meteor.isServer) {
       const schema2 = Denormalize.generateSimpleSchema(
         {
           postId: {
-            // type: String,  // this will be set
+            type: String,
             optional: true,
             denormalize: {
               relation: Denormalize.RELATION_MANY_TO_ONE,
@@ -417,7 +415,7 @@ if (Meteor.isServer) {
       const schema3 = Denormalize.generateSimpleSchema(
         {
           postId: {
-            // type: String, // should be [String]
+            type: [String],
             optional: true,
             denormalize: {
               relation: Denormalize.RELATION_ONE_TO_MANY,
