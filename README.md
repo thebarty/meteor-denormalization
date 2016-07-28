@@ -57,7 +57,7 @@ $ meteor add thebarty:denormalization
 ```
 
 
-# How does it work? An Introduction
+# How does it work?
 
 With the help of this package your collections will store **writable foreign-keys** (in "referenceProperties") and **read-only instances** (in "cacheProperties").
 
@@ -69,43 +69,31 @@ For each "referenceProperty" this package will automatically create a **read-onl
 
 ## A first example
 
+### HAS_MANY relationships
+
 Within your SimpleSchema you define a "denormalize"-relation, p.e. when defining your "Posts"-schema you can hookup "Comments" within the referenceProperty like so:
+
 ```js
-  // "Posts"-schema definition
-  // 1 Post can have Many comments
-  commentIds: {  // = referenceProperty
+Posts.attachDenormalizedSchema({
+  post: { type: String },
+
+  // 1 comment has 1 post (=referenceProperty)
+  commentIds: {
+    type: [String],
     optional: true,
     denormalize: {
-      relation: Denormalize.RELATION_ONE_TO_MANY,
+      relation: Denormalize.RELATION_HAS_MANY,
       relatedCollection: Comments,
-      relatedReferenceProperty: 'postId',
+      pickAttributes: ['comment'],
     },
-  }
-  // "commentCache" (cacheProperty) will be created automatically
+  },
+  // commentCache will be created (and synced with Comments collection)
+})
 ```
  
-Note how you only define the referenceProperty "Posts.commentIds", where the foreign-keys ``_id`` will be saved as an array of strings (``type: [String]``). This is the property you can write to. An extra cacheProperties called ``commentCache`` will be created containing the full comment-instances.
+Note: You only define the **writable** referenceProperty "Posts.commentIds", where the foreign-keys ``_id`` will be saved as an array of strings (``type: [String]``). An extra **read-only** cacheProperties called ``commentCache`` will be created containing the full comment-instances.
 
-In the "Comments"-schema you can now link back to "Posts":
-```js
-  // "Comment"-schema definition
-  // from the "comments"-perspective:
-  //  Many Comments can be assigned to 1 Post
-  //  so lets store the single reference
-  postId: {  // = referenceProperty
-    type: String,
-    denormalize: {
-      relation: Denormalize.RELATION_MANY_TO_ONE,
-      relatedCollection: Posts,
-      relatedReferenceProperty: 'commentIds',
-  	}
-  },
-  // "postCache" (cacheProperty) will be created automatically
-```
-
-The ``Comments.postId``-property is the field you can write to. An extra cacheProperties called ``Comments.postCache`` will be created for you containing the full comment-instances.
-
-**The package will now do the rest of the work for you:**
+**The package will do 2 things:**
 
   * it will **attach cacheProperties** to both schemas (``Comments.postCache``and ``Posts.commentCache``). *Why do we do this? Because this way you can still rely on SimpleSchema's validation-logic, p.e. a ``clean()`` will still pass.*
   
@@ -114,42 +102,186 @@ The ``Comments.postId``-property is the field you can write to. An extra cachePr
 You can now **write to the referenceProperties** (containing the ``_id``) and **read from the cacheProperties**, p.e. like:
 
 ```js
-	  // write to the referenceProperties, p.e. "Comments.postId"
-      const postId = Posts.insert({
-        authorId,
-        postText: 'post 1',
-      })
-      const commentId = Comments.insert({
-        commentText: 'comment 1',
-        postId: postId,
-      })
+// INSERT
+const commentId1 = Comments.insert({
+  comment: 'comment 1',
+})
+const commentId2 = Comments.insert({
+  comment: 'comment 2',
+})
+const postId = Posts.insert({
+  post: 'post 1',
+  commentIds: [
+  	commentId1,
+  	commentId2,
+  ],
+})
+const post = Posts.findOne(postId)
+expect(post.commentCache.instances.length).to.equal(2)
+expect(post.commentCache.instances[0].comment).to.equal('comment 1')
+expect(post.commentCache.instances[1].comment).to.equal('comment 2')
 
-      const post = Posts.findOne(postId)
-      const comment = Comments.findOne(commentId)
+// UPDATE
+Posts.update(postId, { $set: {
+  commentIds: [
+  	commentId2,
+  ],
+} })
+const postAfterUpdate = Posts.findOne(postId)
+expect(postAfterUpdate.commentCache.instances.length).to.equal(1)
+expect(postAfterUpdate.commentCache.instances[0].comment).to.equal('comment 2')
 
-      // comments
-      expect(comment.postId).to.equal(postId)
-      expect(comment.postCache.postText).to.equal('post 1')
+// updates on comments will be synced to posts, p.e.
+Comments.update(commentId2, { $set: { comment: 'comment 2 NEW' } } )
+const postAfterCommentUpdate = Posts.findOne(postId)
+expect(postAfterCommentUpdate.commentCache.instances.length).to.equal(1)
+expect(postAfterCommentUpdate.commentCache.instances[0].comment).to.equal('comment 2 NEW')
 
-      // posts
-      expect(post.commentIds).to.deep.equal([commentId])
-      expect(post.commentCache.instances.length).to.equal(1)
-      expect(post.commentCache.instances[0].commentText).to.equal('comment 1')
+// REMOVE on comments will be synced
+Comments.remove(commentId2)
+const postAfterCommentRemove = Posts.findOne(postId)
+expect(postAfterCommentUpdate.commentCache.instances.length).to.equal(0)
 ```
 
+### HAS_ONE relationships
 
-# Supported Relationships
+This alone will denormalize "Posts"-documents within their related Comments and keep their data in sync. In the "Comments"-collection you could now denormalize related "Posts", like this:
 
-## ONE-TO-ONE relationships
+```js
+Comments.attachDenormalizedSchema({
+  comment: { type: String },
 
-## ONE-TO-MANY relationships
+  // 1 comment has 1 post (=referenceProperty)
+  postId: {
+    type: String,
+    optional: false,
+    denormalize: {
+      relation: Denormalize.RELATION_HAS_ONE,
+      relatedCollection: Posts,
+      pickAttributes: ['post'],
+    },
+  },
+  // postCache will be created (and synced with Posts collection)
+})
+```
 
-## MANY-TO-ONE relationships
+``Comments.postId`` is the referenceProperty you can write to. An extra cacheProperties called ``Comments.postCache`` will be created for you containing the full comment-instances.
 
-## MANY-TO-MANY relationships
+**You can now read and write to the collection like:**
 
-## More examples? Check out the .test-files
+```js
+// INSERT
+const postId1 = Posts.insert({
+  post: 'post 1',
+})
+const postId2 = Posts.insert({
+  post: 'post 2',
+})
+const commentId1 = Comments.insert({
+  postId: postId1,
+  comment: 'comment 1',
+})
 
+// INSERT
+const comment = Comments.findOne(commentId1)
+expect(comment.postCache.post).to.equal('post 1')
+
+// UPDATE
+Comments.update(commentId1, { $set: { postId: postId2 } })
+const comment = Comments.findOne(commentId1)
+expect(comment.postCache.post).to.equal('post 2')
+// .. this useCase has more details than shown here: when both collections have a denormalization attached, then the comment will also be removed from referenceProperty in post1.
+
+// REMOVES
+Denormalize.validateAndExecute(() => {
+	Posts.remove(postId1)
+	// make sure that data is consistent
+	// p.e. it might happen that a Comment NEEDS to have a Post
+	// assigned. Then we could remove the Post, but when removing
+	// the reference from the Comment, there will be an error thrown.
+	// In this case, we will "rollback" the ``Posts.remove()`` and
+	// throw an validationError.
+})
+const commentAfterRemove = Comments.findOne(commentId1)
+expect(commentAfterRemove.postId).to.be.undefined
+expect(commentAfterRemove.postCache).to.be.undefined
+```
+
+### HAS_ONE relationships - "embedded-array" mode
+
+If you want to go more advanced you could even define HAS_ONE-relations within an embedded array, in order to store more related information. P.e. if you want to store the order of the comment, instead of stayin "flat", you could use the **"embedded-array" mode**:
+
+```js
+Comments.attachDenormalizedSchema({
+  comment: { type: String },
+
+	posts: {
+		type: [Object],
+		label: 'Related Posts',
+	},
+	// "embedded-array" mode: embedd denormalized data in array
+  // 1 comment has 1 post (=referenceProperty)
+  'posts.$.postId': {
+    type: String,
+    optional: false,
+    denormalize: {
+      relation: Denormalize.RELATION_HAS_ONE,
+      relatedCollection: Posts,
+      pickAttributes: ['post'],
+    },
+  },
+  // 'posts.$.postCache' will be created (and synced with Posts collection)
+
+  // store more infos within the embedded array
+  'posts.$.order': {
+    type: Number,
+    optional: false,
+  },
+})
+```
+
+# Chained denormalisations are currently NOT possible - WHO knows how to do it?
+
+Syncing 2 collections using collection-hooks package is possible by registering hooks plus using the ``Collection.direct.*`` commands within the hooks to prevent infinite-loops.
+
+BUT - how about implementing "chained denormalizations"?
+
+This is an example to demonstrate what I mean:
+
+Lets say we have "Posts", "Comments" and "Guests". A post stores comments, a comment stores its post and the guest who wrote it. So the "name" of the Guest is actually available in 2 places:
+ 1. ``Comment.guestCache.name``
+ 2. ``Post.commentCache[].guestCache.name``
+
+[[https://github.com/thebarty/denormalization/blob/master/docs/img/chained_denormalization_example.png]]
+
+## The challange
+
+What if a ``Guest.name`` gets updated, or even removed? The sync to the related Comment will work, BUT the ``Post.commentCache`` will NOT know about it using the current collection-hooks approach.
+
+How could we solve this issue? First ideas:
+
+Instead of using ``Collection.direct.insert|update|remove``-commands within our hooks to prevent infintive hook-loops, we could use ``Collection.direct.insert|update|remove``-commands to pass thru chained denormalization. 
+
+In order to prevent infinite loops, we would have to simple prevent the original caller-hook to be called again, p.e. within ``Comments.after.update``-hook we could trigger ALL other hooks, except ``Guest.hooks``. In order to do this, we need to be able to pass an parameter from an Mongo-command to the attached hook.
+
+It would be great if we could do this - BUT this is NOT possible right now, right? I have created a topic within the collection-hooks package on this: https://github.com/matb33/meteor-collection-hooks/issues/192
+
+**Do you have an idea how to do this? Please let use know!**
+
+```js
+// pass a parameter to on update that I can then read in hook
+Comments.update(id, { $set: { something: 'new' } }, 
+	{ calledFromWithinHook: Guest } )
+
+// read this parameter in hook, p.e.
+Collection.after.update( (calledFromWithinHook) => {
+	// run any hooks EXCEPT the ones being related to calledFromWithinHook
+})
+```
+
+## The current solution: do NOT support it
+
+An easy workaround for version 1 of this package would be to simply NOT support "chained"-denormalizations. This means, that we need to REMOVE all referenceProperties and cacheProperties within cached documents, p.e. ``Post.commentCache[]`` will simply NOT contain ``guestCache`` and ``guestId``.
 
 # Constribute to this project
 
