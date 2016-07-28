@@ -36,6 +36,7 @@ It is designed to be **compatible with the aldeed:ecosystem** ([SimpleSchema](ht
     - [HAS_MANY relationships (FLAT mode)](#has_many-relationships-flat-mode)
     - [HAS_MANY relationships (EMBEDDED-ARRAY mode)](#has_many-relationships-embedded-array-mode)
 - [Data consistency](#data-consistency)
+  - [Cascade Delete vs. Validation via Rollback](#cascade-delete-vs-validation-via-rollback)
   - [Rollback system](#rollback-system)
   - [Bidirectional syncing](#bidirectional-syncing)
 - [Chained denormalisations? Help needed: How do implement ?](#chained-denormalisations-help-needed-how-do-implement-)
