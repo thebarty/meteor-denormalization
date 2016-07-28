@@ -26,16 +26,16 @@ It is designed to be **compatible with the aldeed:ecosystem** ([SimpleSchema](ht
 
 
 - [Installation](#installation)
-- [How does it work? An Introduction](#how-does-it-work-an-introduction)
+- [How does it work?](#how-does-it-work)
   - ["referenceProperties": writable foreign-key stores](#referenceproperties-writable-foreign-key-stores)
   - ["cacheProperties": read-only full-instance stores](#cacheproperties-read-only-full-instance-stores)
   - [A first example](#a-first-example)
-- [Supported Relationships](#supported-relationships)
-  - [ONE-TO-ONE relationships](#one-to-one-relationships)
-  - [ONE-TO-MANY relationships](#one-to-many-relationships)
-  - [MANY-TO-ONE relationships](#many-to-one-relationships)
-  - [MANY-TO-MANY relationships](#many-to-many-relationships)
-  - [More examples? Check out the .test-files](#more-examples-check-out-the-test-files)
+    - [HAS_MANY relationships](#has_many-relationships)
+    - [HAS_ONE relationships](#has_one-relationships)
+    - [HAS_ONE relationships - "embedded-array" mode](#has_one-relationships---embedded-array-mode)
+- [Chained denormalisations are currently NOT possible - WHO knows how to do it?](#chained-denormalisations-are-currently-not-possible---who-knows-how-to-do-it)
+  - [The challange](#the-challange)
+  - [The current solution: do NOT support it](#the-current-solution-do-not-support-it)
 - [Constribute to this project](#constribute-to-this-project)
   - [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
   - [Ideas for future releases](#ideas-for-future-releases)
@@ -252,7 +252,7 @@ Lets say we have "Posts", "Comments" and "Guests". A post stores comments, a com
  1. ``Comment.guestCache.name``
  2. ``Post.commentCache[].guestCache.name``
 
-[[https://github.com/thebarty/meteor-denormalization/blob/master/docs/img/chained_denormalization_example.png]]
+![chained denormalizations](https://github.com/thebarty/meteor-denormalization/blob/master/docs/img/chained_denormalization_example.png)
 
 ## The challange
 
