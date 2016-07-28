@@ -30,12 +30,14 @@ It is designed to be **compatible with the aldeed:ecosystem** ([SimpleSchema](ht
   - ["referenceProperties": writable foreign-key stores](#referenceproperties-writable-foreign-key-stores)
   - ["cacheProperties": read-only full-instance stores](#cacheproperties-read-only-full-instance-stores)
   - [A first example](#a-first-example)
-    - [HAS_MANY relationships](#has_many-relationships)
     - [HAS_ONE relationships](#has_one-relationships)
-    - [HAS_ONE relationships - "embedded-array" mode](#has_one-relationships---embedded-array-mode)
-- [Chained denormalisations are currently NOT possible - WHO knows how to do it?](#chained-denormalisations-are-currently-not-possible---who-knows-how-to-do-it)
+    - [HAS_MANY relationships (FLAT mode)](#has_many-relationships-flat-mode)
+    - [HAS_MANY relationships (EMBEDDED-ARRAY mode)](#has_many-relationships-embedded-array-mode)
+- [Data consistency](#data-consistency)
+  - [Examples](#examples)
+- [Chained denormalisations? Help needed: How do implement ?](#chained-denormalisations-help-needed-how-do-implement-)
   - [The challange](#the-challange)
-  - [The current solution: do NOT support it](#the-current-solution-do-not-support-it)
+  - [The current solution: we do NOT support it](#the-current-solution-we-do-not-support-it)
 - [Constribute to this project](#constribute-to-this-project)
   - [Open Questions to the experts (for Version 2.0)](#open-questions-to-the-experts-for-version-20)
   - [Ideas for future releases](#ideas-for-future-releases)
@@ -69,16 +71,90 @@ For each "referenceProperty" this package will automatically create a **read-onl
 
 ## A first example
 
+### HAS_ONE relationships
+
+Within the "Comments"-collection you can denormalize related "Posts", like this:
+
+```js
+Comments.attachDenormalizedSchema({
+  comment: { type: String },
+
+  // 1 comment has 1 post (=referenceProperty)
+  postId: {
+    type: String,
+    optional: false,
+    denormalize: {
+      relation: Denormalize.HAS_ONE,
+      relatedCollection: Posts,
+      pickProperties: ['post'],
+    },
+  },
+  // postCache will be created (and synced with Posts collection)
+})
+```
+
+``Comments.postId`` is the referenceProperty you can write to. An extra cacheProperties called ``Comments.postCache`` will be created for you containing the full comment-instances.
+
+**The package will do 2 things:**
+
+  1. it will **attach cacheProperties** to the schemas (``Comments.postCache``). *Why do we do this? Because this way you can still rely on SimpleSchema's validation-logic, p.e. a ``clean()`` will still pass.*
+  
+  2. it will automatically **sync data** from the "Comments"- to the "Posts"-collection on ``insert``-, ``update``- and ``remove``-commands, by using collection-hooks. 
+
+The cache (``Comments.commentCache``) will renew...
+  * when you edit (insert|update|remove) ``Comments.commentIds``, p.e. like ``Comments.update(id, {$set: { commentIds: [postId] }})``
+  * when a related "Post" is edited (update|remove), p.e. via ``Post.update(id, {$set: {post: 'new test'}})``.
+
+**You can now read and write to the collection like:**
+
+```js
+// INSERT
+const postId1 = Posts.insert({
+  post: 'post 1',
+})
+const postId2 = Posts.insert({
+  post: 'post 2',
+})
+const commentId1 = Comments.insert({
+  postId: postId1,
+  comment: 'comment 1',
+})
+
+// INSERT
+const comment = Comments.findOne(commentId1)
+expect(comment.postCache.post).to.equal('post 1')
+
+// UPDATE
+Comments.update(commentId1, { $set: { postId: postId2 } })
+const comment = Comments.findOne(commentId1)
+expect(comment.postCache.post).to.equal('post 2')
+// .. this useCase has more details than shown here: when both collections have a denormalization attached, then the comment will also be removed from referenceProperty in post1.
+
+// REMOVES
+Denormalize.validateAndExecute(() => {
+	Posts.remove(postId1)
+	// make sure that data is consistent
+	// p.e. it might happen that a Comment NEEDS to have a Post
+	// assigned. Then we could remove the Post, but when removing
+	// the reference from the Comment, there will be an error thrown.
+	// In this case, we will "rollback" the ``Posts.remove()`` and
+	// throw an validationError.
+})
+const commentAfterRemove = Comments.findOne(commentId1)
+expect(commentAfterRemove.postId).to.be.undefined
+expect(commentAfterRemove.postCache).to.be.undefined
+```
+
 ### HAS_MANY relationships (FLAT mode)
 
-Within your SimpleSchema you define a "denormalize"-relation, p.e. when defining your "Posts"-schema you can hookup "Comments" within the referenceProperty like so:
+Defining your "Posts"-schema you can hookup "Comments" within the referenceProperty like so:
 
 ```js
 Posts.attachDenormalizedSchema({
   post: { type: String },
 
-  // 1 comment has 1 post (=referenceProperty)
-  commentIds: {
+  // referenceProperty
+	commentIds: {
     type: [String],
     optional: true,
     denormalize: {
@@ -92,16 +168,6 @@ Posts.attachDenormalizedSchema({
 ```
  
 Note: You only define the **writable** referenceProperty "Posts.commentIds", where the foreign-keys ``_id`` will be saved as an array of strings (``type: [String]``). An extra **read-only** cacheProperties called ``commentCache`` will be created containing the full comment-instances.
-
-**The package will do 2 things:**
-
-  1. it will **attach cacheProperties** to the schemas (``Comments.postCache``). *Why do we do this? Because this way you can still rely on SimpleSchema's validation-logic, p.e. a ``clean()`` will still pass.*
-  
-  2. it will automatically **sync data** from the "Comments"- to the "Posts"-collection on ``insert``-, ``update``- and ``remove``-commands, by using collection-hooks. 
-
-The cache (``Comments.commentCache``) will renew...
-  * when you edit (insert|update|remove) ``Comments.commentIds``, p.e. like ``Comments.update(id, {$set: { commentIds: [postId] }})``
-  * when a related "Post" is edited (update|remove)), p.e. via ``Post.update(id, {$set: {post: 'new test'}})``.
 
 You can now **write to the referenceProperties** (containing the ``_id``) and **read from the cacheProperties**, p.e. like:
 
@@ -178,70 +244,6 @@ Posts.attachDenormalizedSchema({
     optional: false,
   },
 })
-```
-
-### HAS_ONE relationships
-
-Within the "Comments"-collection you could now denormalize related "Posts", like this:
-
-```js
-Comments.attachDenormalizedSchema({
-  comment: { type: String },
-
-  // 1 comment has 1 post (=referenceProperty)
-  postId: {
-    type: String,
-    optional: false,
-    denormalize: {
-      relation: Denormalize.HAS_ONE,
-      relatedCollection: Posts,
-      pickProperties: ['post'],
-    },
-  },
-  // postCache will be created (and synced with Posts collection)
-})
-```
-
-``Comments.postId`` is the referenceProperty you can write to. An extra cacheProperties called ``Comments.postCache`` will be created for you containing the full comment-instances.
-
-**You can now read and write to the collection like:**
-
-```js
-// INSERT
-const postId1 = Posts.insert({
-  post: 'post 1',
-})
-const postId2 = Posts.insert({
-  post: 'post 2',
-})
-const commentId1 = Comments.insert({
-  postId: postId1,
-  comment: 'comment 1',
-})
-
-// INSERT
-const comment = Comments.findOne(commentId1)
-expect(comment.postCache.post).to.equal('post 1')
-
-// UPDATE
-Comments.update(commentId1, { $set: { postId: postId2 } })
-const comment = Comments.findOne(commentId1)
-expect(comment.postCache.post).to.equal('post 2')
-// .. this useCase has more details than shown here: when both collections have a denormalization attached, then the comment will also be removed from referenceProperty in post1.
-
-// REMOVES
-Denormalize.validateAndExecute(() => {
-	Posts.remove(postId1)
-	// make sure that data is consistent
-	// p.e. it might happen that a Comment NEEDS to have a Post
-	// assigned. Then we could remove the Post, but when removing
-	// the reference from the Comment, there will be an error thrown.
-	// In this case, we will "rollback" the ``Posts.remove()`` and
-	// throw an validationError.
-})
-const commentAfterRemove = Comments.findOne(commentId1)
-expect(commentAfterRemove.postId).to.be.undefined
-expect(commentAfterRemove.postCache).to.be.undefined
 ```
 
 # Data consistency
