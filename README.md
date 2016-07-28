@@ -84,7 +84,7 @@ Within the "Comments"-collection you can denormalize related "Posts", like this:
 Comments.attachDenormalizedSchema({
   comment: { type: String },
 
-  // 1 comment has 1 post (=referenceProperty)
+  // referenceProperty
   postId: {
     type: String,
     optional: false,
@@ -231,7 +231,7 @@ Posts.attachDenormalizedSchema({
 		label: 'Comments in Post',
 	},
 	// "embedded-array" mode: embedded denormalized data in array
-  // 1 comment has 1 post (=referenceProperty)
+  // referenceProperty
   'comments.$.commentId': {
     type: String,
     optional: false,
@@ -270,7 +270,7 @@ For example: if a comment needs to have a post attached and we **remove** a post
 
 The above scenario also should throw an error when you try to remove a comment from its referenceProperty via an **update**. Within the hooks we would then try to remove the postId from the ``comment.postId``, which would throw an Error, because it always needs a post attached (``option: false``). Thru our transaction-system all changes (including the ones on Post) should be rolled back and an error should be thrown.
 
-**Example Code***
+**Example Code**
 
 ```js
 Comments.attachDenormalizedSchema({

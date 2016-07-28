@@ -49,7 +49,18 @@ function extend (target) {
 }
 
 /**
- * Attach helper to standard
+ * Main function to register a schema to a collection.
+ *
+ * This is meant to be the replacer for SimpleSchema's ``Collection.attachSchema()``
+ * and it is compatible to SimpleSchema.
+ *
+ * This is what happens here
+ * 1) It basically finds the denormalize-settings within the schema
+ * 2) it extends the schema to include cacheProperties
+ * 3) it uses the found denormalize-settings to create collection hooks to sync data
+ * 4) it then passes thru the schema to SimpleSchema and attaches it to the collection
+      via SimpleSchema's official ``attachSchema``
+ *
  * @param  {[type]} schema  [description]
  * @param  {[type]} options [description]
  * @return {[type]}         [description]
@@ -60,8 +71,8 @@ Mongo.Collection.prototype.attachDenormalizedSchema = function attachDenormalize
     schemas = [schemas]
   }
 
-  // loop thru array of schemas
-  //  build cache field
+  // loop thru array of schemas-objects
+  //  transform them into SimpleSchemas that are compatible to our package
   //  attach collection hooks
   let denormalizedSchemas = []
   let mergedSchema = {}
@@ -70,7 +81,7 @@ Mongo.Collection.prototype.attachDenormalizedSchema = function attachDenormalize
     denormalizedSchemas.push(denormalizedSchema)
     _.extend(mergedSchema, denormalizedSchema)
   }
-  Denormalize.hookMeUp(this, mergedSchema)
+  Denormalize.setupHooksForCollectionBySchema(this, mergedSchema)
 
   // attach "denormalized"-Schemas via standard SimpleSchema.attachSchema
   this.attachSchema(denormalizedSchemas)
@@ -105,7 +116,7 @@ export const Denormalize = class Denormalize {
     for (const keyInSchema of denormalizedKeys) {
       const mode = Denormalize._getModeForKey(keyInSchema)
       Denormalize._validateDenormalizedSettings(schema, keyInSchema)
-      const { relation, relatedCollection, pickAttributes, extendCacheFieldBy } = schema[keyInSchema]['denormalize']
+      const { relation, relatedCollection, pickProperties, extendCacheFieldBy } = schema[keyInSchema]['denormalize']
 
       const cacheName = Denormalize._getCacheNameFromReferenceKey(keyInSchema)
 
@@ -138,29 +149,41 @@ export const Denormalize = class Denormalize {
   }
 
   /**
-   * Hook up the defined denormalization-strategy to the collection.
+   * Attach collection-hooks to the collection,
+   * based on the denormalization-strategy defined within the schema.
    *
    * We are using collection-hooks package here and simply call its functions.
-   * It is possible to attach multiple hooks of the same type to a collection.
+   *
+   * This means that we might have multiple hooks attached to a collection,
+   * p.e. an update on "Posts"-collection might sync to both the "Posts"- and "Comments"-collection
+   * by the following hooks:
+   *  * "Posts.commentIds"-update
+   *    > sync data to Commments-collection
+   *  * "Posts.authorId"-update
+   *    > sync data to Authors-collection.
+   *
+   * Our aim here is to support both
+   *  * unidirectional relations (p.e. a Post caches its Comments)
+   *  * & bidirectional relations (p.e. a Post caches its Comments PLUS Comments cache their Post).
    *
    * @param  {[type]} collection [description]
    * @param  {[type]} schema     [description]
    * @return {[type]}            [description]
    */
-  static hookMeUp(collection, schema) {
+  static setupHooksForCollectionBySchema(collection, schema) {
     // create insert- update- remove-hooks
-    debug(`creating hooks for collection `)
+    debug(`creating hooks for collection "${collection._name}"`)
 
     const denormalizedKeys = Denormalize._findDenormalizedKeysInSchema(schema)
     for (const keyInSchema of denormalizedKeys) {
       debug(`creating hooks for "${collection._name}.${keyInSchema}" `)
       Denormalize._validateDenormalizedSettings(schema, keyInSchema)
-      const { relation, relatedCollection, relatedReferenceProperty, pickAttributes, omitAttributes, extendCacheFieldBy } = schema[keyInSchema]['denormalize']
+      const { relation, relatedCollection, relatedReferenceProperty, pickProperties, omitAttributes, extendCacheFieldBy } = schema[keyInSchema]['denormalize']
       const mode = Denormalize._getModeForKey(keyInSchema)
       const cacheName = Denormalize._getCacheNameFromReferenceKey(keyInSchema)
 
-      if (relation===Denormalize.RELATION_MANY_TO_ONE) {
-        // "RELATION_MANY_TO_ONE"
+      if (relation===Denormalize.HAS_ONE) {
+        // "HAS_ONE"
         //  example: MANY "comments" can belong to ONE post
         //  WE ARE IN THE "COMMENTS"-COLLECTION
         //  and want to reference to the one post we belong to.
@@ -171,7 +194,7 @@ export const Denormalize = class Denormalize {
         // INSERT-HOOK (p.e. "a comment is inserted, maybe with a post attached")
         collection.after.insert(function (userId, doc) {
           debug('=====================================================')
-          debug(`${collection._name}.after.insert - field ${keyInSchema} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReferenceProperty})`)
+          debug(`${collection._name}.after.insert - field ${keyInSchema} (HAS_ONE to ${relatedCollection._name}.${relatedReferenceProperty})`)
           const docId = this._id
           const referenceId = doc[keyInSchema]
           if (referenceId) {
@@ -181,7 +204,7 @@ export const Denormalize = class Denormalize {
             Denormalize._updateCacheInCollection({
               collection,
               _id: docId,
-              valueForOneCache: Denormalize._pickAndOmitFields(relatedCollection.findOne(referenceId), pickAttributes, omitAttributes),
+              valueForOneCache: Denormalize._pickAndOmitFields(relatedCollection.findOne(referenceId), pickProperties, omitAttributes),
               referenceProperty: keyInSchema,
             })
 
@@ -204,7 +227,13 @@ export const Denormalize = class Denormalize {
         // UPDATE-HOOK (p.e. "a comment is updated, p.e. its text is changed, or it is assigned a different post")
         collection.after.update(function(userId, doc, fieldNames, modifier, options) {
           debug('=====================================================')
-          debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_MANY_TO_ONE to ${relatedCollection._name}.${relatedReferenceProperty})`)
+          debug(`${collection._name}.after.update - field ${keyInSchema} (HAS_ONE to ${relatedCollection._name}.${relatedReferenceProperty})`)
+          debug('this', this)
+          debug('userId', userId)
+          debug('doc', doc)
+          debug('fieldNames', fieldNames)
+          debug('modifier', modifier)
+          debug('options', options)
           const docId = doc._id
           const referenceProperty = keyInSchema
           const referenceId = doc[referenceProperty]
@@ -268,7 +297,7 @@ export const Denormalize = class Denormalize {
               _id: referenceId,
               collection: relatedCollection,
               referenceProperty: relatedReferenceProperty,
-              relation: Denormalize.RELATION_ONE_TO_MANY,  // the opposite relation!!!
+              relation: Denormalize.HAS_MANY,  // the opposite relation!!!
               relatedCollection: collection,
               relatedReferenceProperty: keyInSchema,
             })
@@ -280,8 +309,8 @@ export const Denormalize = class Denormalize {
         //  * relatedCollection (p.e. post):
         //    * remove _id from comment._id to postIds
         //    * remove _id forom postCache
-      } else if (relation===Denormalize.RELATION_ONE_TO_MANY) {
-        // "RELATION_ONE_TO_MANY"
+      } else if (relation===Denormalize.HAS_MANY) {
+        // "HAS_MANY"
         //  example: ONE post can have MANY "comments"
         //  WE ARE IN THE "POSTS"-COLLECTION
         //  and want to reference to the many comments
@@ -293,7 +322,7 @@ export const Denormalize = class Denormalize {
         // INSERT-HOOK (p.e. "a post is inserted, maybe with comments attached")
         collection.after.insert(function (userId, doc) {
           debug('=====================================================')
-          debug(`${collection._name}.after.insert - field ${keyInSchema} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReferenceProperty})`)
+          debug(`${collection._name}.after.insert - field ${keyInSchema} (HAS_MANY to ${relatedCollection._name}.${relatedReferenceProperty})`)
 
           const docId = this._id
           const referenceIds = doc[keyInSchema]
@@ -374,7 +403,7 @@ export const Denormalize = class Denormalize {
         //   added and some removed, maybe it gets a different text, ...")
         collection.after.update(function(userId, doc, fieldNames, modifier, options) {
           debug('=====================================================')
-          debug(`${collection._name}.after.update - field ${keyInSchema} (RELATION_ONE_TO_MANY to ${relatedCollection._name}.${relatedReferenceProperty})`)
+          debug(`${collection._name}.after.update - field ${keyInSchema} (HAS_MANY to ${relatedCollection._name}.${relatedReferenceProperty})`)
           const docId = doc._id
           const referenceProperty = keyInSchema
           const referenceIds = doc[keyInSchema]
@@ -450,7 +479,7 @@ export const Denormalize = class Denormalize {
                 _id: referenceId,
                 collection: relatedCollection,
                 referenceProperty: relatedReferenceProperty,
-                relation: Denormalize.RELATION_MANY_TO_ONE,  // the opposite relation!!!
+                relation: Denormalize.HAS_ONE,  // the opposite relation!!!
                 relatedCollection: collection,
                 relatedReferenceProperty: keyInSchema,
               })
@@ -469,13 +498,13 @@ export const Denormalize = class Denormalize {
 
   // ================================================
   // PRIVATE HELPER (not to be used from outside)
-  static _pickAndOmitFields(doc, pickAttributes, omitAttributes) {
+  static _pickAndOmitFields(doc, pickProperties, omitAttributes) {
     check(doc, Object)
-    check(pickAttributes, Match.Maybe([String]))
+    check(pickProperties, Match.Maybe([String]))
     check(omitAttributes, Match.Maybe([String]))
     let returnDoc = doc
-    if (pickAttributes) {
-      returnDoc = _.pick(returnDoc, pickAttributes)
+    if (pickProperties) {
+      returnDoc = _.pick(returnDoc, pickProperties)
     }
     if (omitAttributes) {
       returnDoc = _.omit(returnDoc, omitAttributes)
@@ -523,28 +552,28 @@ export const Denormalize = class Denormalize {
     // base-validation
     new SimpleSchema({
       relation: { type: String, allowedValues: [
-        Denormalize.RELATION_MANY_TO_ONE,
-        Denormalize.RELATION_ONE_TO_MANY,
+        Denormalize.HAS_ONE,
+        Denormalize.HAS_MANY,
         // other relations NOT YET supported
       ] },
       relatedCollection: { type: Mongo.Collection },
       relatedReferenceProperty: { type: String, optional: true },
-      pickAttributes: { type: [String], optional: true },
+      pickProperties: { type: [String], optional: true },
       omitAttributes: { type: [String], optional: true },
       extendCacheFieldBy: { type: Object, optional: true, blackbox: true, }
     }).validate(settings)
 
     // more detailed validation
     const existingType = schema[keyInSchema]['type']
-    if (settings.relation===Denormalize.RELATION_MANY_TO_ONE) {
+    if (settings.relation===Denormalize.HAS_ONE) {
       // valide type
       // and FORCE ``schema[keyInSchema]['type'] = String`` definition
       if (existingType!==String) {
-        throw new Error(`"${keyInSchema}.type" needs to be "String" for relation-type "RELATION_MANY_TO_ONE". Please correct it by setting "type: String", or choose a different relation.`)
+        throw new Error(`"${keyInSchema}.type" needs to be "String" for relation-type "HAS_ONE". Please correct it by setting "type: String", or choose a different relation.`)
       }
       // "relatedReferenceProperty" is mandatory
       if (!Match.test(settings.relatedReferenceProperty, String)) {
-        throw new Error(`you need to define "relatedReferenceProperty" when using a "RELATION_MANY_TO_ONE"-relation for property "${keyInSchema}"`)
+        throw new Error(`you need to define "relatedReferenceProperty" when using a "HAS_ONE"-relation for property "${keyInSchema}"`)
       }
       // "relatedReferenceProperty"-field needs to exist in schema of relatedCollection
       //  simpleSchema is NOT available during instanciation of the collections
@@ -552,11 +581,11 @@ export const Denormalize = class Denormalize {
           && !_.contains(settings.relatedCollection.simpleSchema()._schemaKeys, settings.relatedReferenceProperty)) {
         throw new Error(`within keyInSchema "${keyInSchema}" you are referencing relatedReferenceProperty to "${settings.relatedCollection._name}.${settings.relatedReferenceProperty}", BUT this property does NOT exist in collection "${settings.relatedCollection._name}"`)
       }
-    } else if (settings.relation===Denormalize.RELATION_ONE_TO_MANY) {
+    } else if (settings.relation===Denormalize.HAS_MANY) {
       // valide type
       // FORCE ``schema[keyInSchema]['type'] = [String]``
       if (!(_.isArray(existingType) && existingType[0]===String)) {
-        throw new Error(`"${keyInSchema}.type" needs to be "[String]" for relation-type "RELATION_ONE_TO_MANY". Please correct it by setting "type: [String]", or choose a different relation.`)
+        throw new Error(`"${keyInSchema}.type" needs to be "[String]" for relation-type "HAS_MANY". Please correct it by setting "type: [String]", or choose a different relation.`)
       }
     } else {
       throw new Error(`relation type NOT yet supported!`)
@@ -868,8 +897,8 @@ export const Denormalize = class Denormalize {
     if (!doc) {
       throw new Error(`you are trying to refresh denormalizations for doc "${_id}", but it does NOT exist in collection "${collection._name}"`)
     }
-    if (relation===Denormalize.RELATION_ONE_TO_MANY) {
-      // "RELATION_ONE_TO_MANY"
+    if (relation===Denormalize.HAS_MANY) {
+      // "HAS_MANY"
       //  example: ONE post can have MANY "comments"
       //  WE ARE IN THE "POSTS"-COLLECTION
       doc = Denormalize._ensureArrayProperty(doc, referenceProperty)
@@ -890,8 +919,8 @@ export const Denormalize = class Denormalize {
         valueForManyCache: newCache,
       })
 
-    } else if (relation===Denormalize.RELATION_MANY_TO_ONE) {
-      // "RELATION_MANY_TO_ONE"
+    } else if (relation===Denormalize.HAS_ONE) {
+      // "HAS_ONE"
       //  example: MANY "comments" can belong to ONE post
       //  WE ARE IN THE "COMMENTS"-COLLECTION
       // TODOD
@@ -919,13 +948,13 @@ export const Denormalize = class Denormalize {
   }
 }
 Denormalize.RELATION_ONE_TO_ONE   = 'RELATION_ONE_TO_ONE'
-Denormalize.RELATION_ONE_TO_MANY  = 'RELATION_ONE_TO_MANY'
-Denormalize.RELATION_MANY_TO_ONE  = 'RELATION_MANY_TO_ONE'
+Denormalize.HAS_MANY  = 'HAS_MANY'
+Denormalize.HAS_ONE  = 'HAS_ONE'
 Denormalize.RELATION_MANY_TO_MANY = 'RELATION_MANY_TO_MANY'
 Denormalize.RELATION_OPTIONS = [
   Denormalize.RELATION_ONE_TO_ONE,
-  Denormalize.RELATION_ONE_TO_MANY,
-  Denormalize.RELATION_MANY_TO_ONE,
+  Denormalize.HAS_MANY,
+  Denormalize.HAS_ONE,
   Denormalize.RELATION_MANY_TO_MANY,
 ]
 Denormalize.MODE_FLAT             = 'MODE_FLAT'

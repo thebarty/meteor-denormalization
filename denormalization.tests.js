@@ -77,10 +77,10 @@ Authors.attachDenormalizedSchema([
       type: [String],
       optional: true,
       denormalize: {
-        relation: Denormalize.RELATION_ONE_TO_MANY,
+        relation: Denormalize.HAS_MANY,
         relatedCollection: Posts,
         relatedReferenceProperty: 'authorId',
-        pickAttributes: ['post'],
+        pickProperties: ['post'],
         extendCacheFieldBy: {
           label: 'Author denormalized Instance',
         }
@@ -96,7 +96,7 @@ Comments.attachDenormalizedSchema({
   comment: {
     type: String,
   },
-  // RELATION: "Foreign-Key" (RELATION_MANY_TO_ONE reference field)
+  // RELATION: "Foreign-Key" (HAS_ONE reference field)
   // .. from Comments-perspectve
   //    Many Comment are assigned to 1 Post
   // .. or in other words (from the Post-perspective):
@@ -106,10 +106,10 @@ Comments.attachDenormalizedSchema({
     type: String,
     optional: true,
     denormalize: {
-      relation: Denormalize.RELATION_MANY_TO_ONE,
+      relation: Denormalize.HAS_ONE,
       relatedCollection: Posts,
       relatedReferenceProperty: 'commentIds',
-      pickAttributes: ['post'],
+      pickProperties: ['post'],
       extendCacheFieldBy: {
         // the content of this object is attached to the generated instance-field
         label: 'Posts Instance',
@@ -137,10 +137,10 @@ Posts.attachDenormalizedSchema({
     type: [String],
     optional: true,
     denormalize: {
-      relation: Denormalize.RELATION_ONE_TO_MANY,
+      relation: Denormalize.HAS_MANY,
       relatedCollection: Comments,
       relatedReferenceProperty: 'postId',
-      pickAttributes: ['comment'],
+      pickProperties: ['comment'],
     },
   },
 
@@ -151,10 +151,10 @@ Posts.attachDenormalizedSchema({
     type: String,
     optional: false,  // mandatory
     denormalize: {
-      relation: Denormalize.RELATION_MANY_TO_ONE,
+      relation: Denormalize.HAS_ONE,
       relatedCollection: Authors,
       relatedReferenceProperty: 'postIds',
-      pickAttributes: ['name'],
+      pickProperties: ['name'],
     },
   },
 })
@@ -361,10 +361,10 @@ if (Meteor.isServer) {
             type: String,
             optional: true,
             denormalize: {
-              relation: Denormalize.RELATION_MANY_TO_ONE,
+              relation: Denormalize.HAS_ONE,
               relatedCollection: Comments,
               relatedReferenceProperty: 'postId',
-              pickAttributes: ['post'],
+              pickProperties: ['post'],
               extendCacheFieldBy: {
                 label: 'Posts Instance',
                 autoform: {
@@ -389,10 +389,10 @@ if (Meteor.isServer) {
             type: String,
             optional: true,
             denormalize: {
-              relation: Denormalize.RELATION_MANY_TO_ONE,
+              relation: Denormalize.HAS_ONE,
               relatedCollection: Comments,
               relatedReferenceProperty: 'postId',
-              pickAttributes: ['post'],
+              pickProperties: ['post'],
               extendCacheFieldBy: {
                 label: 'Posts Instance',
                 autoform: {
@@ -418,10 +418,10 @@ if (Meteor.isServer) {
             type: [String],
             optional: true,
             denormalize: {
-              relation: Denormalize.RELATION_ONE_TO_MANY,
+              relation: Denormalize.HAS_MANY,
               relatedCollection: Posts,
               relatedReferenceProperty: 'authorId',
-              pickAttributes: ['post'],
+              pickProperties: ['post'],
               extendCacheFieldBy: {
                 label: 'Author denormalized Instance',
               },
@@ -442,7 +442,7 @@ if (Meteor.isServer) {
           type: String,
           optional: true,
           denormalize: {
-            relation: Denormalize.RELATION_MANY_TO_ONE,
+            relation: Denormalize.HAS_ONE,
             relatedCollection: Comments,
             relatedReferenceProperty: 'postIdssss',
           },
@@ -457,7 +457,7 @@ if (Meteor.isServer) {
           type: String,
           optional: true,
           denormalize: {
-            relation: Denormalize.RELATION_MANY_TO_ONE,
+            relation: Denormalize.HAS_ONE,
             relatedCollection: Comments,
             relatedReferenceProperty: 'postId',
           },
@@ -622,7 +622,7 @@ if (Meteor.isServer) {
       expect(post2.commentCache.instances[0].comment).to.equal('comment 1')
     })
 
-    it('Example 1 - Scenario 4 works: Updates are synced correctly from RELATION_MANY_TO_ONE perspective', function () {
+    it('Example 1 - Scenario 4 works: Updates are synced correctly from HAS_ONE perspective', function () {
       // Load fixtures
       const fixtures = createExample1Fixtures()
 
@@ -636,7 +636,7 @@ if (Meteor.isServer) {
       const post1 = Posts.findOne(fixtures.postId1)
       const post2 = Posts.findOne(fixtures.postId2)
 
-      // lets update RELATION_MANY_TO_ONE references - will cache be synced?
+      // lets update HAS_ONE references - will cache be synced?
       Comments.update(fixtures.commentId1, { $set: { postId: fixtures.postId2 } })
 
       // got post1 updated? (has comment been removed?)
@@ -668,7 +668,7 @@ if (Meteor.isServer) {
       expect(post2_2.commentCache.instances[2].comment).to.equal('comment 1')
     })
 
-    it('Example 1 - Scenario 5 works: Updates are synced correctly when reference is removed in a RELATION_MANY_TO_ONE', function () {
+    it('Example 1 - Scenario 5 works: Updates are synced correctly when reference is removed in a HAS_ONE', function () {
       // Load fixtures
       const fixtures = createExample1Fixtures()
 
@@ -683,11 +683,11 @@ if (Meteor.isServer) {
       expect(post1.commentCache.instances.length).to.equal(0)
     })
 
-    it('Example 1 - Scenario 6 works: Updates are synced correctly from RELATION_ONE_TO_MANY perspective', function () {
+    it('Example 1 - Scenario 6 works: Updates are synced correctly from HAS_MANY perspective', function () {
       // Load fixtures
       const fixtures = createExample1Fixtures()
 
-      // lets update RELATION_ONE_TO_MANY references - will cache be synced?
+      // lets update HAS_MANY references - will cache be synced?
       // .. ADD a field
       // INITIAL Data:
       //  post1: comment1
@@ -727,11 +727,11 @@ if (Meteor.isServer) {
       Posts.update(fixtures.postId1, { $set: { post: 'post 1 NEW TEXT' } })
     })
 
-    it('Example 1 - Scenario 5 works: Updates are synced correctly when reference is set to empty array in a RELATION_ONE_TO_MANY', function () {
+    it('Example 1 - Scenario 5 works: Updates are synced correctly when reference is set to empty array in a HAS_MANY', function () {
       // Load fixtures
       const fixtures = createExample1Fixtures()
 
-      // lets update RELATION_ONE_TO_MANY references - will cache be synced?
+      // lets update HAS_MANY references - will cache be synced?
       // .. ADD a field
       // INITIAL Data:
       //  post1: comment1
@@ -750,11 +750,11 @@ if (Meteor.isServer) {
       expect(comment1.postCache).to.be.undefined
     })
 
-    it('Example 1 - Scenario 6 works: Updates are synced correctly when reference is unset in a RELATION_ONE_TO_MANY', function () {
+    it('Example 1 - Scenario 6 works: Updates are synced correctly when reference is unset in a HAS_MANY', function () {
       // Load fixtures
       const fixtures = createExample1Fixtures()
 
-      // lets update RELATION_ONE_TO_MANY references - will cache be synced?
+      // lets update HAS_MANY references - will cache be synced?
       // .. ADD a field
       // INITIAL Data:
       //  post1: comment1
@@ -916,9 +916,9 @@ PostsEnhanced.Schema = new SimpleSchema({
     type: String,
     optional: false,
     denormalize: {
-      relation: RELATION_ONE_TO_MANY,
+      relation: HAS_MANY,
       relatedCollection: Posts,
-      pickAttributes: ['post'],
+      pickProperties: ['post'],
       extendCacheFieldBy: {
         // MERGE INTO FLAT
       }
