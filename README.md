@@ -6,15 +6,17 @@
 **WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
 
 
+*This is a first draft of how the api in version 1.0 could look like. I am looking for your feedback on this. The package is NOT YET written nor released!*
+
 # Meteor Denormalization for SimpleSchema & Collection2
 
 *thebarty:denormalization*
 
-*This is a first draft of how the api in version 1.0 could look like. I am looking for your feedback on this. The package is NOT YET released!*
+Outlook: This package makes denormalization of your Mongo collections easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "one-to-one"-, "one-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box thru our "HAS_ONE"- and "HAS_MANY"-relations.
 
-This package makes denormalization of your Mongo collections easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "one-to-one"-, "one-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box thru our "HAS_ONE"- and "HAS_MANY"-relations.
+The system will then automatically denormalize the data between the specified collections and keep them in sync on ``insert``-, ``update``- and ``remove``-commands. 
 
-The package will then automatically denormalize the data between the specified collections and keep them in sync on ``insert``-, ``update``- and ``remove``-commands. 
+With the help of the included "rollback system" and "bidirectional sync", data-consistency is ensured.
 
 It is designed to be **compatible with the aldeed:ecosystem** ([SimpleSchema](https://github.com/aldeed/meteor-simple-schema), [Collection2](https://github.com/aldeed/meteor-collection2), [AutoForm](https://github.com/aldeed/meteor-autoform), [Tabular](https://github.com/aldeed/meteor-tabular/)).
 
@@ -34,7 +36,8 @@ It is designed to be **compatible with the aldeed:ecosystem** ([SimpleSchema](ht
     - [HAS_MANY relationships (FLAT mode)](#has_many-relationships-flat-mode)
     - [HAS_MANY relationships (EMBEDDED-ARRAY mode)](#has_many-relationships-embedded-array-mode)
 - [Data consistency](#data-consistency)
-  - [Examples](#examples)
+  - [Rollback system](#rollback-system)
+  - [Bidirectional syncing](#bidirectional-syncing)
 - [Chained denormalisations? Help needed: How do implement ?](#chained-denormalisations-help-needed-how-do-implement-)
   - [The challange](#the-challange)
   - [The current solution: we do NOT support it](#the-current-solution-we-do-not-support-it)
@@ -70,6 +73,8 @@ You design your SimpleSchema by adding **"referenceProperties"** (p.e. ``Post.co
 For each "referenceProperty" this package will automatically create a **read-only "cacheProperty"**, where full instances of the related doc will be stored.
 
 ## A first example
+
+Let's start simple with a "Posts" and "Comments" example: one post can have multiple comments. 1 comment is related to one post.
 
 ### HAS_ONE relationships
 
@@ -250,9 +255,12 @@ Posts.attachDenormalizedSchema({
 
 This package only makes sense when we can guarantee that data is kept consistent.
 
-There are scenarios when we need some kind of transaction system, especially when using ``optional: false`` within an referenceProperty.
 
-## Examples
+## Rollback system
+
+There are scenarios when we need some kind of transaction/rollback-system, that can rollback changes when an error occurs, p.e. in a related hook. 
+
+This can easily happen when defining referenceProperty as ``optional: false`` as the following "REMOVE"- and "UPDATE"-scenario demonstrates.
 
 **REMOVE scenario**
 
@@ -300,9 +308,15 @@ const commentId1 = Comments.insert({
 // an error should be thrown when trying to remove the post
 expect(() => {
 	Denormalize.validateAndExecute(() => {
-		Post.remove(postId1)		
+		Post.remove(postId1) 
+		// the above command will go thru,
+		// BUT ``Comments.update({$unset: { comments.postId: 1 } })``
+		// will throw an error. we need to rollback
 	})
 }).to.throw()
+// validate rollback
+expect(Posts.findOne(postId1)).to.be.defined
+expect(Comments.findOne(commentId1).postCache.post).to.equal('comment 1')
 
 // an error should be thrown when trying to remove the reference
 expect(() => {
@@ -310,8 +324,69 @@ expect(() => {
 		Post.update(postId1, { $set: { commentIds: [] } })		
 	})
 }).to.throw()
+// validate rollback
+expect(Posts.findOne(postId1)).to.be.defined
+expect(Comments.findOne(commentId1).postCache.post).to.equal('comment 1')
 ```
 
+
+## Bidirectional syncing
+
+This package supports bidirectional linking, p.e. "Comments" contain denormalized posts, "Posts" contain denormalized comments.
+
+In this scenario we need to keep the relations in sync within both collection:
+ * if an update is made on collection "Posts", then relations in collection "Comments" need to be updated
+ * if an update is made on collection "Comments", then relations in collection "Posts" needs to be updated
+
+```js
+// Schema definitions INCLUDING bidirectional-sync setting
+Comments.attachDenormalizedSchema({
+  comment: { type: String },
+  postId: {
+    type: String,
+    optional: true,
+    denormalize: {
+      relation: Denormalize.HAS_ONE,
+      relatedCollection: Posts,
+      relatedReferenceProperty: 'commentsIds' // bidirectional setting 
+	                                            // (optional), but enables
+	                                            // bidirectional syncinc
+    },
+  },
+})
+
+Posts.attachDenormalizedSchema({
+  post: { type: String },
+  commentIds: {
+    type: [String],
+    optional: true,
+    denormalize: {
+      relation: Denormalize.HAS_MANY,
+      relatedCollection: Comments,
+      relatedReferenceProperty: 'postId' // bidirectional setting 
+                                         // (optional), but enables
+                                         // bidirectional syncinc
+    },
+  },
+})
+// fixtures
+const postId = Posts.insert({
+  post: 'post 1',
+})
+// NOTE: we are updating the relation in Comments.postId,
+// and expect the bidirectional sync, to search for a "denormalize"-relation
+// in Posts field and update the related ``Post.commentIds`` referenceProperty.
+const commentId = Comments.insert({
+  postId: postId,
+  comment: 'comment 1',
+})
+
+// expect Post.commentIds to be updated
+const post = Posts.findOne(postId)
+const comment = Comments.findOne(commentId)
+expect(post.commentIds).to.deep.equal([commentId])
+expect(post.commentCache.instances[0].comment).to.equal('comment 1')
+```
 
 # Chained denormalisations? Help needed: How do implement ?
 
@@ -355,6 +430,7 @@ Collection.after.update( (calledFromWithinHook) => {
 ## The current solution: we do NOT support it
 
 An easy workaround for version 1 of this package would be to simply NOT support "chained"-denormalizations. This means, that we need to REMOVE all referenceProperties and cacheProperties within cached documents, p.e. ``Post.commentCache[]`` will simply NOT contain ``guestCache`` and ``guestId``.
+
 
 # Constribute to this project
 
