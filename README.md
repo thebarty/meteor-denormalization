@@ -252,7 +252,7 @@ Lets say we have "Posts", "Comments" and "Guests". A post stores comments, a com
  1. ``Comment.guestCache.name``
  2. ``Post.commentCache[].guestCache.name``
 
-[[ meteor-denormalization/docs/img/chained_denormalization_example.png ]]
+[[https://github.com/thebarty/meteor-denormalization/blob/master/docs/img/chained_denormalization_example.png]]
 
 ## The challange
 
