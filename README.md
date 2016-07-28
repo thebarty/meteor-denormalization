@@ -1,5 +1,3 @@
-# WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!
-
 **WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
 **WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
 **WARNING: THIS IS WORK IN PROGRESS - THIS IS TOTALLY UNUSABLE RIGHT NOW!!!**
@@ -12,7 +10,9 @@
 
 *thebarty:denormalization*
 
-This package makes denormalization of your Mongo collections easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "one-to-one"-, "one-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box.
+*This is a first draft of how the api in version 1.0 could look like. I am looking for your feedback on this. The package is NOT YET released!*
+
+This package makes denormalization of your Mongo collections easy for you: Simply define your denormalizations within your [SimpleSchema](https://github.com/aldeed/meteor-simple-schema) and let it do all the magic. "one-to-one"-, "one-to-many"-, "many-to-one"- and "many-to-many"-relations are supported out-of-the-box thru our "HAS_ONE"- and "HAS_MANY"-relations.
 
 The package will then automatically denormalize the data between the specified collections and keep them in sync on ``insert``-, ``update``- and ``remove``-commands. 
 
@@ -69,7 +69,7 @@ For each "referenceProperty" this package will automatically create a **read-onl
 
 ## A first example
 
-### HAS_MANY relationships
+### HAS_MANY relationships (FLAT mode)
 
 Within your SimpleSchema you define a "denormalize"-relation, p.e. when defining your "Posts"-schema you can hookup "Comments" within the referenceProperty like so:
 
@@ -82,9 +82,9 @@ Posts.attachDenormalizedSchema({
     type: [String],
     optional: true,
     denormalize: {
-      relation: Denormalize.RELATION_HAS_MANY,
+      relation: Denormalize.HAS_MANY,
       relatedCollection: Comments,
-      pickAttributes: ['comment'],
+      pickProperties: ['comment'],
     },
   },
   // commentCache will be created (and synced with Comments collection)
@@ -95,9 +95,13 @@ Note: You only define the **writable** referenceProperty "Posts.commentIds", whe
 
 **The package will do 2 things:**
 
-  * it will **attach cacheProperties** to both schemas (``Comments.postCache``and ``Posts.commentCache``). *Why do we do this? Because this way you can still rely on SimpleSchema's validation-logic, p.e. a ``clean()`` will still pass.*
+  1. it will **attach cacheProperties** to the schemas (``Comments.postCache``). *Why do we do this? Because this way you can still rely on SimpleSchema's validation-logic, p.e. a ``clean()`` will still pass.*
   
-  * it will automatically **sync data between both collections** on ``insert``-, ``update``- and ``remove``-commands, by using collection-hooks.
+  2. it will automatically **sync data** from the "Comments"- to the "Posts"-collection on ``insert``-, ``update``- and ``remove``-commands, by using collection-hooks. 
+
+The cache (``Comments.commentCache``) will renew...
+  * when you edit (insert|update|remove) ``Comments.commentIds``, p.e. like ``Comments.update(id, {$set: { commentIds: [postId] }})``
+  * when a related "Post" is edited (update|remove)), p.e. via ``Post.update(id, {$set: {post: 'new test'}})``.
 
 You can now **write to the referenceProperties** (containing the ``_id``) and **read from the cacheProperties**, p.e. like:
 
@@ -143,9 +147,42 @@ const postAfterCommentRemove = Posts.findOne(postId)
 expect(postAfterCommentUpdate.commentCache.instances.length).to.equal(0)
 ```
 
+### HAS_MANY relationships (EMBEDDED-ARRAY mode)
+
+If you need to store additional data within an HAS_MANY-relation, you can use the EMBEDDED-ARRAY mode. P.e. if you want to store the order of the comment, do it like this:
+
+```js
+Posts.attachDenormalizedSchema({
+  post: { type: String },
+
+	comments: {
+		type: [Object],
+		label: 'Comments in Post',
+	},
+	// "embedded-array" mode: embedded denormalized data in array
+  // 1 comment has 1 post (=referenceProperty)
+  'comments.$.commentId': {
+    type: String,
+    optional: false,
+    denormalize: {
+      relation: Denormalize.HAS_MANY,
+      relatedCollection: Comments,
+      pickProperties: ['comment'],
+    },
+  },
+  // 'comments.$.postCache' will be created (and synced with Posts collection)
+
+  // store more infos within the embedded array
+  'comments.$.order': {
+    type: Number,
+    optional: false,
+  },
+})
+```
+
 ### HAS_ONE relationships
 
-This alone will denormalize "Posts"-documents within their related Comments and keep their data in sync. In the "Comments"-collection you could now denormalize related "Posts", like this:
+Within the "Comments"-collection you could now denormalize related "Posts", like this:
 
 ```js
 Comments.attachDenormalizedSchema({
@@ -156,9 +193,9 @@ Comments.attachDenormalizedSchema({
     type: String,
     optional: false,
     denormalize: {
-      relation: Denormalize.RELATION_HAS_ONE,
+      relation: Denormalize.HAS_ONE,
       relatedCollection: Posts,
-      pickAttributes: ['post'],
+      pickProperties: ['post'],
     },
   },
   // postCache will be created (and synced with Posts collection)
@@ -207,40 +244,74 @@ expect(commentAfterRemove.postId).to.be.undefined
 expect(commentAfterRemove.postCache).to.be.undefined
 ```
 
-### HAS_ONE relationships - "embedded-array" mode
+# Data consistency
 
-If you want to go more advanced you could even define HAS_ONE-relations within an embedded array, in order to store more related information. P.e. if you want to store the order of the comment, instead of stayin "flat", you could use the **"embedded-array" mode**:
+This package only makes sense when we can guarantee that data is kept consistent.
+
+There are scenarios when we need some kind of transaction system, especially when using ``optional: false`` within an referenceProperty.
+
+## Examples
+
+**REMOVE scenario**
+
+For example: if a comment needs to have a post attached and we **remove** a post which is assigned in a comment: then an error needs to be thrown stating that the post can NOT be removed because a comment is still relating to it.
+
+**UPDATE scenario**
+
+The above scenario also should throw an error when you try to remove a comment from its referenceProperty via an **update**. Within the hooks we would then try to remove the postId from the ``comment.postId``, which would throw an Error, because it always needs a post attached (``option: false``). Thru our transaction-system all changes (including the ones on Post) should be rolled back and an error should be thrown.
+
+**Example Code***
 
 ```js
 Comments.attachDenormalizedSchema({
   comment: { type: String },
-
-	posts: {
-		type: [Object],
-		label: 'Related Posts',
-	},
-	// "embedded-array" mode: embedd denormalized data in array
-  // 1 comment has 1 post (=referenceProperty)
-  'posts.$.postId': {
+  postId: {
     type: String,
-    optional: false,
+    optional: false,  // MANDATORY = we need rollback support(!!!)
     denormalize: {
-      relation: Denormalize.RELATION_HAS_ONE,
+      relation: Denormalize.HAS_ONE,
       relatedCollection: Posts,
-      pickAttributes: ['post'],
     },
   },
-  // 'posts.$.postCache' will be created (and synced with Posts collection)
+})
 
-  // store more infos within the embedded array
-  'posts.$.order': {
-    type: Number,
-    optional: false,
+Posts.attachDenormalizedSchema({
+  post: { type: String },
+  commentIds: {
+    type: [String],
+    optional: true,
+    denormalize: {
+      relation: Denormalize.HAS_MANY,
+      relatedCollection: Comments,
+    },
   },
 })
+// fixtures
+const postId1 = Posts.insert({
+  post: 'post 1',
+})
+const commentId1 = Comments.insert({
+  postId: postId1,
+  comment: 'comment 1',
+})
+
+// an error should be thrown when trying to remove the post
+expect(() => {
+	Denormalize.validateAndExecute(() => {
+		Post.remove(postId1)		
+	})
+}).to.throw()
+
+// an error should be thrown when trying to remove the reference
+expect(() => {
+	Denormalize.validateAndExecute(() => {
+		Post.update(postId1, { $set: { commentIds: [] } })		
+	})
+}).to.throw()
 ```
 
-# Chained denormalisations are currently NOT possible - WHO knows how to do it?
+
+# Chained denormalisations? Help needed: How do implement ?
 
 Syncing 2 collections using collection-hooks package is possible by registering hooks plus using the ``Collection.direct.*`` commands within the hooks to prevent infinite-loops.
 
@@ -279,7 +350,7 @@ Collection.after.update( (calledFromWithinHook) => {
 })
 ```
 
-## The current solution: do NOT support it
+## The current solution: we do NOT support it
 
 An easy workaround for version 1 of this package would be to simply NOT support "chained"-denormalizations. This means, that we need to REMOVE all referenceProperties and cacheProperties within cached documents, p.e. ``Post.commentCache[]`` will simply NOT contain ``guestCache`` and ``guestId``.
 
