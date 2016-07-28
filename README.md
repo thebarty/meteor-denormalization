@@ -255,6 +255,26 @@ Posts.attachDenormalizedSchema({
 
 This package only makes sense when we can guarantee that data is kept consistent.
 
+## Cascade Delete vs. Validation via Rollback
+
+The user should be able to select the cascade update policy like:
+
+```
+	commentIds: {
+    type: [String],
+    optional: true,
+    denormalize: {
+      relation: Denormalize.HAS_MANY,
+      relatedCollection: Comments,
+      cascadeDelelte: Denormalize.CASCADE_DELETE || Denormalize.CASCADE_ESCALATE
+    },
+  },
+```
+
+ * Denormalize.CASCADE_ESCALATE will throw an Error an trigger a rollback
+ * Denormalize.CASCADE_DELETE will delete the related documents
+
+This should be evaluated in detail.
 
 ## Rollback system
 
